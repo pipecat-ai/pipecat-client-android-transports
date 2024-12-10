@@ -37,13 +37,13 @@ jobs:
           java-version: '17'
 
       - name: Build Daily transport
-        run: ./gradlew :rtvi-client-android-daily:assembleRelease
+        run: ./gradlew :pipecat-client-android-daily:assembleRelease
 
       - name: Generate Maven repo
-        run: ./gradlew :rtvi-client-android-daily:publishAllPublicationsToRTVILocalRepoRepository
+        run: ./gradlew :pipecat-client-android-daily:publishAllPublicationsToPipecatLocalRepoRepository
 
       - name: Upload Maven repo
         uses: actions/upload-artifact@v4
         with:
-          name: RTVIClientAndroidDaily-Repo
-          path: build/RTVILocalRepo
+          name: PipecatClientAndroidDaily-Repo
+          path: build/PipecatLocalRepo

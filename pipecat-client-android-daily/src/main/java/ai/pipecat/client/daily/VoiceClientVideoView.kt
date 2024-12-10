@@ -1,6 +1,6 @@
-package ai.rtvi.client.daily
+package ai.pipecat.client.daily
 
-import ai.rtvi.client.types.MediaTrackId
+import ai.pipecat.client.types.MediaTrackId
 import android.content.Context
 import android.util.AttributeSet
 import co.daily.model.MediaStreamTrack

@@ -1,4 +1,4 @@
-package ai.rtvi.client.daily
+package ai.pipecat.client.daily
 
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable

@@ -19,5 +19,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "RTVI Daily Client Transport"
-include(":rtvi-client-android-daily")
+rootProject.name = "Pipecat Daily Client Transports"
+include(":pipecat-client-android-daily")

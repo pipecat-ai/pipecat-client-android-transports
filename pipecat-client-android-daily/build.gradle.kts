@@ -8,7 +8,7 @@ plugins {
 }
 
 android {
-    namespace = "ai.rtvi.client.daily"
+    namespace = "ai.pipecat.client.daily"
     compileSdk = 34
 
     defaultConfig {
@@ -45,7 +45,7 @@ dependencies {
     implementation(libs.kotlinx.serialization.json)
 
     api(libs.daily.android.client)
-    api(libs.rtvi.client)
+    api(libs.pipecat.client)
 
     androidTestImplementation(libs.androidx.runner)
     androidTestImplementation(libs.androidx.rules)
@@ -55,40 +55,40 @@ dependencies {
 publishing {
     repositories {
         maven {
-            url = rootProject.layout.buildDirectory.dir("RTVILocalRepo").get().asFile.toURI()
-            name = "RTVILocalRepo"
+            url = rootProject.layout.buildDirectory.dir("PipecatLocalRepo").get().asFile.toURI()
+            name = "PipecatLocalRepo"
         }
     }
 
     publications {
         register<MavenPublication>("release") {
-            groupId = "ai.rtvi"
-            artifactId = "client-daily"
-            version = "0.2.1"
+            groupId = "ai.pipecat"
+            artifactId = "daily-transport"
+            version = "0.3.0"
 
             pom {
-                name.set("RTVI Client Daily Transport")
-                description.set("Daily RTVI client library for Android")
-                url.set("https://github.com/rtvi-ai/rtvi-client-android-daily")
+                name.set("Pipecat Client Daily Transport")
+                description.set("Daily Pipecat transport for Android")
+                url.set("https://github.com/pipecat-ai/pipecat-client-android-transports")
 
                 developers {
                     developer {
-                        id.set("rtvi.ai")
-                        name.set("rtvi.ai")
+                        id.set("pipecat.ai")
+                        name.set("pipecat.ai")
                     }
                 }
 
                 licenses {
                     license {
                         name.set("BSD 2-Clause License")
-                        url.set("https://github.com/rtvi-ai/rtvi-client-android-daily/blob/main/LICENSE")
+                        url.set("https://github.com/pipecat-ai/pipecat-client-android-transports/blob/main/LICENSE")
                     }
                 }
 
                 scm {
-                    connection.set("scm:git:git://github.com/rtvi-ai/rtvi-client-android-daily.git")
-                    developerConnection.set("scm:git:ssh://github.com:rtvi-ai/rtvi-client-android-daily.git")
-                    url.set("https://github.com/rtvi-ai/rtvi-client-android-daily")
+                    connection.set("scm:git:git://github.com/pipecat-ai/pipecat-client-android-transports.git")
+                    developerConnection.set("scm:git:ssh://github.com:pipecat-ai/pipecat-client-android-transports.git")
+                    url.set("https://github.com/pipecat-ai/pipecat-client-android-transports")
                 }
             }
 

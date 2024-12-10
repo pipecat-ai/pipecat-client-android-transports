@@ -10,7 +10,7 @@
     </application>
 
     <instrumentation android:name="androidx.test.runner.AndroidJUnitRunner"
-        android:targetPackage="ai.rtvi.client.daily"
+        android:targetPackage="ai.pipecat.client.daily"
         android:label="DailyVoiceClient tests"/>
 
 </manifest>

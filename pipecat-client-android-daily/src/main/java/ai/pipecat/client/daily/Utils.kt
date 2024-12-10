@@ -1,12 +1,12 @@
-package ai.rtvi.client.daily
+package ai.pipecat.client.daily
 
-import ai.rtvi.client.result.Promise
-import ai.rtvi.client.result.RTVIError
-import ai.rtvi.client.types.MediaDeviceId
-import ai.rtvi.client.types.MediaDeviceInfo
-import ai.rtvi.client.types.MediaTrackId
-import ai.rtvi.client.types.Participant
-import ai.rtvi.client.types.ParticipantId
+import ai.pipecat.client.result.Promise
+import ai.pipecat.client.result.RTVIError
+import ai.pipecat.client.types.MediaDeviceId
+import ai.pipecat.client.types.MediaDeviceInfo
+import ai.pipecat.client.types.MediaTrackId
+import ai.pipecat.client.types.Participant
+import ai.pipecat.client.types.ParticipantId
 import co.daily.model.RequestError
 import co.daily.model.RequestResult
 import kotlinx.serialization.json.Json

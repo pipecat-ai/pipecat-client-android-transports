@@ -1,21 +1,19 @@
-# Real-Time Voice Inference Android Client SDK: Daily Transport
+# Pipecat Android Client SDK: Transports
 
 [RTVI](https://github.com/rtvi-ai/) is an open standard for Real-Time Voice (and Video) Inference.
 
-This Android library exposes the `DailyVoiceClient` class, to connect to a Daily Bots backend.
-
-## Usage
+## Daily Websocket Transport
 
 Add the following dependency to your `build.gradle` file:
 
 ```
-implementation "ai.rtvi:rtvi-client-android-daily:0.2.1"
+implementation "ai.pipecat:daily-transport:0.3.0"
 ```
 
 Instantiate from your code:
 
 ```kotlin
-val callbacks = object : VoiceEventCallbacks() {
+val callbacks = object : RTVIEventCallbacks() {
 
     override fun onBackendError(message: String) {
         Log.e(TAG, "Error from backend: $message")
@@ -24,7 +22,9 @@ val callbacks = object : VoiceEventCallbacks() {
     // ...
 }
 
-val client = DailyVoiceClient(context, baseUrl, callbacks)
+val transport = DailyTransport.Factory(context)
+
+val client = PipecatClient(transport, callbacks, options)
 
 client.start().withCallback {
     // ...

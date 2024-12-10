@@ -1,23 +1,24 @@
-package ai.rtvi.client.daily
+package ai.pipecat.client.daily
 
-import ai.rtvi.client.RTVIClientOptions
-import ai.rtvi.client.RTVIClientParams
-import ai.rtvi.client.RTVIEventCallbacks
-import ai.rtvi.client.helper.LLMContext
-import ai.rtvi.client.helper.LLMContextMessage
-import ai.rtvi.client.helper.LLMHelper
-import ai.rtvi.client.result.RTVIError
-import ai.rtvi.client.result.Result
-import ai.rtvi.client.types.ActionDescription
-import ai.rtvi.client.types.Config
-import ai.rtvi.client.types.Option
-import ai.rtvi.client.types.OptionDescription
-import ai.rtvi.client.types.ServiceConfig
-import ai.rtvi.client.types.ServiceConfigDescription
-import ai.rtvi.client.types.ServiceRegistration
-import ai.rtvi.client.types.TransportState
-import ai.rtvi.client.types.Type
-import ai.rtvi.client.types.Value
+import ai.pipecat.client.PipecatClient
+import ai.pipecat.client.RTVIClientOptions
+import ai.pipecat.client.RTVIClientParams
+import ai.pipecat.client.RTVIEventCallbacks
+import ai.pipecat.client.helper.LLMContext
+import ai.pipecat.client.helper.LLMContextMessage
+import ai.pipecat.client.helper.LLMHelper
+import ai.pipecat.client.result.RTVIError
+import ai.pipecat.client.result.Result
+import ai.pipecat.client.types.ActionDescription
+import ai.pipecat.client.types.Config
+import ai.pipecat.client.types.Option
+import ai.pipecat.client.types.OptionDescription
+import ai.pipecat.client.types.ServiceConfig
+import ai.pipecat.client.types.ServiceConfigDescription
+import ai.pipecat.client.types.ServiceRegistration
+import ai.pipecat.client.types.TransportState
+import ai.pipecat.client.types.Type
+import ai.pipecat.client.types.Value
 import androidx.test.filters.LargeTest
 import androidx.test.platform.app.InstrumentationRegistry
 import kotlinx.coroutines.Dispatchers
@@ -60,7 +61,7 @@ class MainTests {
         )
 
         private class TestContext(
-            val client: DailyVoiceClient,
+            val client: PipecatClient,
             val llmHelper: LLMHelper
         )
 
@@ -69,8 +70,8 @@ class MainTests {
         ) = runBlocking(Dispatchers.Main) {
             val context = InstrumentationRegistry.getInstrumentation().context
 
-            val client = DailyVoiceClient(
-                context = context,
+            val client = PipecatClient(
+                transport = DailyTransport.Factory(context),
                 callbacks = object : RTVIEventCallbacks() {
                     override fun onBackendError(message: String) {
                         throw Exception("onBackendError: $message")
