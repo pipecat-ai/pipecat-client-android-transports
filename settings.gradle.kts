@@ -19,5 +19,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "Pipecat Daily Client Transports"
+rootProject.name = "Pipecat Client Transports"
 include(":pipecat-client-android-daily")
