@@ -21,3 +21,4 @@ dependencyResolutionManagement {
 
 rootProject.name = "Pipecat Client Transports"
 include(":pipecat-client-android-daily")
+include(":pipecat-client-android-gemini-live-websocket")

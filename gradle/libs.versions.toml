@@ -8,6 +8,7 @@ kotlinxSerializationJson = "1.7.1"
 kotlinxSerializationPlugin = "2.0.20"
 dokka = "1.9.20"
 androidxTest = "1.6.1"
+okhttp = "4.12.0"
 pipecatClient = "0.3.0"
 
 [libraries]
@@ -17,6 +18,7 @@ androidx-runner = { module = "androidx.test:runner", version.ref = "androidxTest
 daily-android-client = { module = "co.daily:client", version.ref = "daily-android-client" }
 kotlinx-coroutines-test = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-test", version.ref = "kotlinxCoroutinesTest" }
 kotlinx-serialization-json = { module = "org.jetbrains.kotlinx:kotlinx-serialization-json", version.ref = "kotlinxSerializationJson" }
+okhttp = { module = "com.squareup.okhttp3:okhttp", version.ref = "okhttp" }
 pipecat-client = { module = "ai.pipecat:client", version.ref = "pipecatClient" }
 
 [plugins]
