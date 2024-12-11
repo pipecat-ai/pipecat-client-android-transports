@@ -39,11 +39,14 @@ jobs:
       - name: Build Daily transport
         run: ./gradlew :pipecat-client-android-daily:assembleRelease
 
-      - name: Generate Maven repo
+      - name: Generate Maven repo for Daily transport
         run: ./gradlew :pipecat-client-android-daily:publishAllPublicationsToPipecatLocalRepoRepository
+
+      - name: Generate Maven repo for Gemini transport
+        run: ./gradlew :pipecat-client-android-gemini-live-websocket:publishAllPublicationsToPipecatLocalRepoRepository
 
       - name: Upload Maven repo
         uses: actions/upload-artifact@v4
         with:
-          name: PipecatClientAndroidDaily-Repo
+          name: PipecatClientAndroidTransports-Repo
           path: build/PipecatLocalRepo
