@@ -1,6 +1,6 @@
 package ai.pipecat.client.daily
 
-import ai.pipecat.client.PipecatClient
+import ai.pipecat.client.RTVIClient
 import ai.pipecat.client.RTVIClientOptions
 import ai.pipecat.client.RTVIClientParams
 import ai.pipecat.client.RTVIEventCallbacks
@@ -61,7 +61,7 @@ class MainTests {
         )
 
         private class TestContext(
-            val client: PipecatClient,
+            val client: RTVIClient,
             val llmHelper: LLMHelper
         )
 
@@ -70,7 +70,7 @@ class MainTests {
         ) = runBlocking(Dispatchers.Main) {
             val context = InstrumentationRegistry.getInstrumentation().context
 
-            val client = PipecatClient(
+            val client = RTVIClient(
                 transport = DailyTransport.Factory(context),
                 callbacks = object : RTVIEventCallbacks() {
                     override fun onBackendError(message: String) {

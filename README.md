@@ -24,7 +24,7 @@ val callbacks = object : RTVIEventCallbacks() {
 
 val transport = DailyTransport.Factory(context)
 
-val client = PipecatClient(transport, callbacks, options)
+val client = RTVIClient(transport, callbacks, options)
 
 client.start().withCallback {
     // ...
