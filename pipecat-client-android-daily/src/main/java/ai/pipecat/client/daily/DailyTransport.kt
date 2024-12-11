@@ -237,8 +237,15 @@ class DailyTransport(
         }
     }
 
-    override fun connect(authBundle: AuthBundle): Future<Unit, RTVIError> =
+    override fun connect(authBundle: AuthBundle?): Future<Unit, RTVIError> =
         thread.runOnThreadReturningFuture {
+
+            if (authBundle == null) {
+                return@runOnThreadReturningFuture resolvedPromiseErr(
+                    thread,
+                    RTVIError.OtherError("Auth request cannot be skipped -- please ensure baseUrl and a connect endpoint are set")
+                )
+            }
 
             Log.i(TAG, "connect(${authBundle.data})")
 
