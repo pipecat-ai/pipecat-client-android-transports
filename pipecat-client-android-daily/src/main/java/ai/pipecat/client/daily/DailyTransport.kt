@@ -115,7 +115,7 @@ class DailyTransport(
                     sendMessage(
                         MsgClientToServer(
                             type = "client-ready",
-                            data = null
+                            data = JsonObject(emptyMap())
                         )
                     )
                 }
