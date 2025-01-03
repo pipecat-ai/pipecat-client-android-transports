@@ -7,6 +7,7 @@ import ai.pipecat.client.result.resolvedPromiseOk
 import ai.pipecat.client.result.withPromise
 import ai.pipecat.client.transport.AuthBundle
 import ai.pipecat.client.transport.MsgClientToServer
+import ai.pipecat.client.transport.MsgServerToClient
 import ai.pipecat.client.transport.Transport
 import ai.pipecat.client.transport.TransportContext
 import ai.pipecat.client.transport.TransportFactory
@@ -24,7 +25,12 @@ import android.annotation.SuppressLint
 import android.content.Context
 import android.media.AudioManager
 import android.util.Log
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.decodeFromJsonElement
+import kotlinx.serialization.json.encodeToJsonElement
 
+
+private val JSON = Json { ignoreUnknownKeys = true }
 
 class GeminiLiveWebsocketTransport(
     private val transportContext: TransportContext,
@@ -50,12 +56,15 @@ class GeminiLiveWebsocketTransport(
             ServiceConfig(
                 SERVICE_LLM, listOf(
                     Option(OPTION_API_KEY, apiKey),
-                    Option(OPTION_INITIAL_USER_MESSAGE, initialUserMessage?.let { Value.Str(it) } ?: Value.Null),
+                    Option(
+                        OPTION_INITIAL_USER_MESSAGE,
+                        initialUserMessage?.let { Value.Str(it) } ?: Value.Null),
                     Option(
                         OPTION_MODEL_CONFIG, Value.Object(
                             "model" to Value.Str(model),
                             "generation_config" to generationConfig,
-                            "system_instruction" to (systemInstruction?.let { Value.Str(it) } ?: Value.Null),
+                            "system_instruction" to (systemInstruction?.let { Value.Str(it) }
+                                ?: Value.Null),
                             "tools" to tools,
                         )
                     )
@@ -114,7 +123,8 @@ class GeminiLiveWebsocketTransport(
 
                     val apiKey = (options?.getValueFor(OPTION_API_KEY) as? Value.Str)?.value
                     val modelConfig = options?.getValueFor(OPTION_MODEL_CONFIG)
-                    val initialUserMessage = (options?.getValueFor(OPTION_INITIAL_USER_MESSAGE) as? Value.Str)?.value
+                    val initialUserMessage =
+                        (options?.getValueFor(OPTION_INITIAL_USER_MESSAGE) as? Value.Str)?.value
 
                     if (apiKey == null) {
                         return@chain resolvedPromiseErr(
@@ -143,6 +153,8 @@ class GeminiLiveWebsocketTransport(
                                     thread.runOnThread {
                                         setState(TransportState.Connected)
                                         transportContext.callbacks.onConnected()
+                                        setState(TransportState.Ready)
+                                        transportContext.callbacks.onBotReady("local", emptyList())
                                         promise.resolveOk(Unit)
                                     }
                                 }
@@ -167,7 +179,61 @@ class GeminiLiveWebsocketTransport(
         resolvedPromiseOk(thread, Unit)
     }
 
-    override fun sendMessage(message: MsgClientToServer) = operationNotSupported<Unit>()
+    override fun sendMessage(message: MsgClientToServer): Future<Unit, RTVIError> {
+
+        when (message.type) {
+            "action" -> {
+                try {
+                    val data =
+                        JSON.decodeFromJsonElement<MsgClientToServer.Data.Action>(message.data!!)
+
+                    when (data.action) {
+
+                        "append_to_messages" -> {
+                            val messages: List<Value.Object> =
+                                (data.arguments.getValueFor("messages") as Value.Array).value.map { it as Value.Object }
+
+                            for (appendedMessage in messages) {
+
+                                val role = appendedMessage.value["role"] as Value.Str
+                                val content = appendedMessage.value["content"] as Value.Str
+
+                                Log.i(TAG, "Sending message as ${role.value}: '${content.value}'")
+
+                                client?.sendUserMessage(role = role.value, content = content.value)
+                            }
+
+                            transportContext.onMessage(
+                                MsgServerToClient(
+                                    id = message.id,
+                                    label = message.label,
+                                    type = MsgServerToClient.Type.ActionResponse,
+                                    data = JSON.encodeToJsonElement(
+                                        MsgServerToClient.Data.ActionResponse(
+                                            Value.Null
+                                        )
+                                    )
+                                )
+                            )
+
+                            return resolvedPromiseOk(thread, Unit)
+                        }
+
+                        else -> {
+                            return operationNotSupported()
+                        }
+                    }
+
+                } catch (e: Exception) {
+                    return resolvedPromiseErr(thread, RTVIError.ExceptionThrown(e))
+                }
+            }
+
+            else -> {
+                return operationNotSupported()
+            }
+        }
+    }
 
     override fun state(): TransportState {
         return state
@@ -196,7 +262,7 @@ class GeminiLiveWebsocketTransport(
 
     override fun updateCam(camId: MediaDeviceId) = operationNotSupported<Unit>()
 
-    override fun selectedMic(): MediaDeviceInfo? {
+    override fun selectedMic(): MediaDeviceInfo {
         val audioManager = appContext.getSystemService(Context.AUDIO_SERVICE) as AudioManager
 
         return when (audioManager.isSpeakerphoneOn) {

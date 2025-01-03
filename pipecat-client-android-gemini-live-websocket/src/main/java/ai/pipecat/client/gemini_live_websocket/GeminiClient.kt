@@ -98,8 +98,13 @@ private data class InlineData(
     }
 }
 
+private data class AppendedMessage(
+    val role: String,
+    val content: String
+)
+
 internal class GeminiClient private constructor(
-    private val onSendUserMessage: (String) -> Unit,
+    private val onSendUserMessage: (AppendedMessage) -> Unit,
     private val onClose: () -> Unit,
     private val setMicMuted: (Boolean) -> Unit,
     private val isMicMuted: () -> Boolean,
@@ -118,13 +123,14 @@ internal class GeminiClient private constructor(
 
     private sealed interface ClientThreadEvent {
         class SendAudioData(val buf: ByteArray) : ClientThreadEvent
-        class SendUserMessage(val text: String) : ClientThreadEvent
+        class SendUserMessage(val msg: AppendedMessage) : ClientThreadEvent
         data object Stop : ClientThreadEvent
         data object WebsocketClosed : ClientThreadEvent
         class WebsocketFailed(val t: Throwable) : ClientThreadEvent
         class WebsocketMessage(val msg: IncomingMessage, val originalText: String) :
             ClientThreadEvent
-        class SetMicMute(val muted: Boolean): ClientThreadEvent
+
+        class SetMicMute(val muted: Boolean) : ClientThreadEvent
     }
 
     companion object {
@@ -225,7 +231,7 @@ internal class GeminiClient private constructor(
                     }
                 })
 
-                fun doSendUserMessage(text: String) {
+                fun doSendUserMessage(msg: AppendedMessage) {
                     ws.send(
                         JSON.encodeToString(
                             ClientContentRequest.serializer(),
@@ -233,8 +239,8 @@ internal class GeminiClient private constructor(
                                 clientContent = ClientContentRequest.ClientContent(
                                     turns = listOf(
                                         ClientContentRequest.ClientContent.Turn(
-                                            role = "user",
-                                            parts = listOf(TurnPart(text = text))
+                                            role = msg.role,
+                                            parts = listOf(TurnPart(text = msg.content))
                                         )
                                     ),
                                     turnComplete = true
@@ -266,7 +272,7 @@ internal class GeminiClient private constructor(
                         }
 
                         is ClientThreadEvent.SendUserMessage -> {
-                            doSendUserMessage(event.text)
+                            doSendUserMessage(event.msg)
                         }
 
                         ClientThreadEvent.Stop -> {
@@ -291,7 +297,12 @@ internal class GeminiClient private constructor(
                                 Log.i(TAG, "Setup complete")
 
                                 if (config.initialMessage != null) {
-                                    doSendUserMessage(config.initialMessage)
+                                    doSendUserMessage(
+                                        AppendedMessage(
+                                            content = config.initialMessage,
+                                            role = "user"
+                                        )
+                                    )
                                 }
 
                                 getListener()?.onConnected()
@@ -370,7 +381,8 @@ internal class GeminiClient private constructor(
             setMicMuted(muted)
         }
 
-    fun sendUserMessage(text: String) = onSendUserMessage(text)
+    fun sendUserMessage(role: String, content: String) =
+        onSendUserMessage(AppendedMessage(role = role, content = content))
 
     fun close() = onClose()
 }

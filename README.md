@@ -13,7 +13,7 @@ The following RTVI transports are available in this repository:
 Add the following dependency to your `build.gradle` file:
 
 ```
-implementation "ai.pipecat:daily-transport:0.3.1"
+implementation "ai.pipecat:daily-transport:0.3.2"
 ```
 
 Instantiate from your code:
@@ -46,7 +46,7 @@ using Kotlin Coroutines (`client.start().await()`).
 Add the following dependency to your `build.gradle` file:
 
 ```
-implementation "ai.pipecat:gemini-live-websocket-transport:0.3.1"
+implementation "ai.pipecat:gemini-live-websocket-transport:0.3.2"
 ```
 
 Instantiate from your code:
