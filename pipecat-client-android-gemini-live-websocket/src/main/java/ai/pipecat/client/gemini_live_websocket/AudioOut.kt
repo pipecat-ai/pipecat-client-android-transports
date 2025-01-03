@@ -5,6 +5,7 @@ import android.media.AudioFormat
 import android.media.AudioManager
 import android.media.AudioTrack
 import android.util.Log
+import java.util.LinkedList
 import java.util.concurrent.LinkedBlockingQueue
 import kotlin.concurrent.thread
 
@@ -14,7 +15,9 @@ private const val TAG = "AudioOut"
 
 internal class AudioOut(sampleRateHz: Int) {
 
-    private val queue = LinkedBlockingQueue<ByteArray?>()
+    private val queueLock = Object()
+    private val queue = LinkedList<ByteArray?>()
+    private var stopped = false
 
     init {
         thread(name = "AudioOut") {
@@ -46,7 +49,13 @@ internal class AudioOut(sampleRateHz: Int) {
                 track.play()
 
                 while (true) {
-                    val item = queue.take()
+
+                    val item = synchronized(queueLock) {
+                        while(queue.isEmpty()) {
+                            queueLock.wait()
+                        }
+                        queue.removeFirst()
+                    }
 
                     if (item == null) {
                         Log.i(TAG, "Terminating AudioOut")
@@ -72,10 +81,31 @@ internal class AudioOut(sampleRateHz: Int) {
     }
 
     fun write(samples: ByteArray) {
-        queue.offer(samples)
+        synchronized(queueLock) {
+            if (!stopped) {
+                queue.offer(samples)
+                queueLock.notifyAll()
+            }
+        }
     }
 
     fun stop() {
-        queue.offer(null)
+        synchronized(queueLock) {
+            if (!stopped) {
+                queue.offer(null)
+                queueLock.notifyAll()
+                stopped = true
+            }
+        }
+    }
+
+    fun interrupt() {
+        synchronized(queueLock) {
+            queue.clear()
+            if (stopped) {
+                queue.add(null)
+            }
+            queueLock.notifyAll()
+        }
     }
 }

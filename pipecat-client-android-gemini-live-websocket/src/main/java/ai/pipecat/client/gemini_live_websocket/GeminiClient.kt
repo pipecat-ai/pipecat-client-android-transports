@@ -69,7 +69,8 @@ private data class IncomingMessage(
     @Serializable
     data class ServerContent(
         val modelTurn: ModelTurn? = null,
-        val turnComplete: Boolean = false
+        val turnComplete: Boolean = false,
+        val interrupted: Boolean = false
     ) {
         @Serializable
         data class ModelTurn(
@@ -246,10 +247,6 @@ internal class GeminiClient private constructor(
                 while (true) {
                     when (val event = events.take()) {
                         is ClientThreadEvent.SendAudioData -> {
-                            Log.i(
-                                TAG,
-                                "Sending ${event.buf.size} bytes of data"
-                            )
 
                             ws.send(
                                 JSON.encodeToString(
@@ -316,11 +313,6 @@ internal class GeminiClient private constructor(
                                         }
 
                                         part.inlineData?.let { inlineData ->
-                                            Log.i(
-                                                TAG,
-                                                "Model data (${inlineData.mimeType}): ${inlineData.data}"
-                                            )
-
                                             audioOut.write(
                                                 Base64.decode(
                                                     inlineData.data,
@@ -329,6 +321,11 @@ internal class GeminiClient private constructor(
                                             )
                                         }
                                     }
+                                }
+
+                                if (data.serverContent.interrupted) {
+                                    Log.i(TAG, "User interrupted model output")
+                                    audioOut.interrupt()
                                 }
 
                                 if (data.serverContent.turnComplete) {
