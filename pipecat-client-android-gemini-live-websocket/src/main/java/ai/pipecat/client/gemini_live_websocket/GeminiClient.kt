@@ -160,7 +160,10 @@ internal class GeminiClient private constructor(
                     onStopped = {},
                     initialMicEnabled = config.initialMicEnabled
                 )
-                val audioOut = AudioOut(24000)
+                val audioOut = AudioOut(
+                    sampleRateHz = 24000,
+                    onAudioLevelUpdate = listener::onBotAudioLevel
+                )
 
                 var isBotTalking = false
 
@@ -252,6 +255,12 @@ internal class GeminiClient private constructor(
                     )
                 }
 
+                fun stopAudio() {
+                    audioIn.stop()
+                    audioOut.interrupt()
+                    audioOut.stop()
+                }
+
                 while (true) {
                     when (val event = events.take()) {
                         is ClientThreadEvent.SendAudioData -> {
@@ -278,21 +287,18 @@ internal class GeminiClient private constructor(
                         }
 
                         ClientThreadEvent.Stop -> {
-                            audioIn.stop()
-                            audioOut.stop()
+                            stopAudio()
                             ws.close(1000, "user requested close")
                         }
 
                         ClientThreadEvent.WebsocketClosed -> {
-                            audioIn.stop()
-                            audioOut.stop()
+                            stopAudio()
                             listenerRef.take()?.onSessionEnded("websocket closed", null)
                             return@thread
                         }
 
                         is ClientThreadEvent.WebsocketFailed -> {
-                            audioIn.stop()
-                            audioOut.stop()
+                            stopAudio()
                             listenerRef.take()?.onSessionEnded("websocket failed", event.t)
                             return@thread
                         }

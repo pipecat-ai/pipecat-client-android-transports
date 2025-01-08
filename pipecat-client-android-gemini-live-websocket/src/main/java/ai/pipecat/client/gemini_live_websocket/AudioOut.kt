@@ -6,14 +6,14 @@ import android.media.AudioManager
 import android.media.AudioTrack
 import android.util.Log
 import java.util.LinkedList
-import java.util.concurrent.LinkedBlockingQueue
 import kotlin.concurrent.thread
+import kotlin.math.sqrt
 
 private const val BUFFER_MS = 100
 
 private const val TAG = "AudioOut"
 
-internal class AudioOut(sampleRateHz: Int) {
+internal class AudioOut(sampleRateHz: Int, onAudioLevelUpdate: (Float) -> Unit) {
 
     private val queueLock = Object()
     private val queue = LinkedList<ByteArray?>()
@@ -62,6 +62,8 @@ internal class AudioOut(sampleRateHz: Int) {
                         return@thread
                     }
 
+                    onAudioLevelUpdate(calculateAudioLevel(item))
+
                     var writePtr = 0
 
                     while (writePtr < item.size) {
@@ -78,6 +80,22 @@ internal class AudioOut(sampleRateHz: Int) {
                 track.release()
             }
         }
+    }
+
+    private fun calculateAudioLevel(pcmData: ByteArray): Float {
+        var sumSquares = 0.0
+        val numSamples = pcmData.size / 2
+
+        for (i in 0 until numSamples) {
+            val low = pcmData[i * 2].toInt() and 0xFF
+            val high = pcmData[i * 2 + 1].toInt() and 0xFF
+            val sample = ((high shl 8) or low).toShort()
+            val sampleValue = sample.toDouble()
+            sumSquares += sampleValue * sampleValue
+        }
+
+        val rms = sqrt(sumSquares / numSamples)
+        return (rms / 32768.0).toFloat().coerceIn(0.0f, 1.0f)
     }
 
     fun write(samples: ByteArray) {
