@@ -119,6 +119,8 @@ internal class GeminiClient private constructor(
     interface Listener {
         fun onConnected()
         fun onSessionEnded(reason: String, t: Throwable?)
+        fun onBotTalking(isTalking: Boolean)
+        fun onBotAudioLevel(level: Float)
     }
 
     private sealed interface ClientThreadEvent {
@@ -159,6 +161,8 @@ internal class GeminiClient private constructor(
                     initialMicEnabled = config.initialMicEnabled
                 )
                 val audioOut = AudioOut(24000)
+
+                var isBotTalking = false
 
                 isMicMutedRef.set { audioIn.muted }
 
@@ -318,6 +322,12 @@ internal class GeminiClient private constructor(
                             } else if (data.serverContent != null) {
 
                                 if (data.serverContent.modelTurn != null) {
+
+                                    if (!isBotTalking) {
+                                        isBotTalking = true
+                                        listenerRef.get()?.onBotTalking(true)
+                                    }
+
                                     data.serverContent.modelTurn.parts.forEach { part ->
 
                                         if (part.text != null) {
@@ -345,6 +355,11 @@ internal class GeminiClient private constructor(
 
                                 if (data.serverContent.turnComplete) {
                                     Log.i(TAG, "Model turn complete")
+
+                                    if (isBotTalking) {
+                                        isBotTalking = false
+                                        listenerRef.get()?.onBotTalking(false)
+                                    }
                                 }
 
                             } else {

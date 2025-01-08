@@ -14,6 +14,8 @@ import ai.pipecat.client.transport.TransportFactory
 import ai.pipecat.client.types.MediaDeviceId
 import ai.pipecat.client.types.MediaDeviceInfo
 import ai.pipecat.client.types.Option
+import ai.pipecat.client.types.Participant
+import ai.pipecat.client.types.ParticipantId
 import ai.pipecat.client.types.ParticipantTracks
 import ai.pipecat.client.types.ServiceConfig
 import ai.pipecat.client.types.Tracks
@@ -31,6 +33,18 @@ import kotlinx.serialization.json.encodeToJsonElement
 
 
 private val JSON = Json { ignoreUnknownKeys = true }
+
+private val BOT_PARTICIPANT = Participant(
+    id = ParticipantId("bot"),
+    name = null,
+    local = false
+)
+
+private val LOCAL_PARTICIPANT = Participant(
+    id = ParticipantId("local"),
+    name = null,
+    local = true
+)
 
 class GeminiLiveWebsocketTransport(
     private val transportContext: TransportContext,
@@ -156,10 +170,13 @@ class GeminiLiveWebsocketTransport(
                             object : GeminiClient.Listener {
                                 override fun onConnected() {
                                     thread.runOnThread {
+                                        val cb = transportContext.callbacks
                                         setState(TransportState.Connected)
-                                        transportContext.callbacks.onConnected()
+                                        cb.onConnected()
+                                        cb.onParticipantJoined(LOCAL_PARTICIPANT)
+                                        cb.onParticipantJoined(BOT_PARTICIPANT)
                                         setState(TransportState.Ready)
-                                        transportContext.callbacks.onBotReady("local", emptyList())
+                                        cb.onBotReady("local", emptyList())
                                         promise.resolveOk(Unit)
                                     }
                                 }
@@ -173,6 +190,27 @@ class GeminiLiveWebsocketTransport(
                                         t?.let {
                                             Log.e(TAG, "Session ended with exception", it)
                                         }
+                                    }
+                                }
+
+                                override fun onBotTalking(isTalking: Boolean) {
+                                    thread.runOnThread {
+                                        transportContext.callbacks.apply {
+                                            if (isTalking) {
+                                                onBotStartedSpeaking()
+                                            } else {
+                                                onBotStoppedSpeaking()
+                                            }
+                                        }
+                                    }
+                                }
+
+                                override fun onBotAudioLevel(level: Float) {
+                                    thread.runOnThread {
+                                        transportContext.callbacks.onRemoteAudioLevel(
+                                            level,
+                                            BOT_PARTICIPANT
+                                        )
                                     }
                                 }
                             }
