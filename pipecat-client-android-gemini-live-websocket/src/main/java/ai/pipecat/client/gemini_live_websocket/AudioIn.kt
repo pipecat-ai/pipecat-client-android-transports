@@ -87,7 +87,6 @@ internal class AudioIn @RequiresPermission(android.Manifest.permission.RECORD_AU
 
     fun stop() {
         stop.set(true)
-        thread.interrupt()
     }
 
     var muted: Boolean

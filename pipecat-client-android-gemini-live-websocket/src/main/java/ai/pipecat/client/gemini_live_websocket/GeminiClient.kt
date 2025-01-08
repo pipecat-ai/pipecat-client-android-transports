@@ -164,8 +164,6 @@ internal class GeminiClient private constructor(
 
                 val listenerRef = AtomicReference(listener)
 
-                val getListener = listenerRef::take
-
                 val request: okhttp3.Request = okhttp3.Request.Builder()
                     .url(
                         API_URL.toHttpUrl().newBuilder()
@@ -282,11 +280,17 @@ internal class GeminiClient private constructor(
                         }
 
                         ClientThreadEvent.WebsocketClosed -> {
-                            getListener()?.onSessionEnded("websocket closed", null)
+                            audioIn.stop()
+                            audioOut.stop()
+                            listenerRef.take()?.onSessionEnded("websocket closed", null)
+                            return@thread
                         }
 
                         is ClientThreadEvent.WebsocketFailed -> {
-                            getListener()?.onSessionEnded("websocket failed", event.t)
+                            audioIn.stop()
+                            audioOut.stop()
+                            listenerRef.take()?.onSessionEnded("websocket failed", event.t)
+                            return@thread
                         }
 
                         is ClientThreadEvent.WebsocketMessage -> {
@@ -305,7 +309,7 @@ internal class GeminiClient private constructor(
                                     )
                                 }
 
-                                getListener()?.onConnected()
+                                listenerRef.get()?.onConnected()
 
                                 audioInCallback.set { buf ->
                                     postEvent(ClientThreadEvent.SendAudioData(buf))

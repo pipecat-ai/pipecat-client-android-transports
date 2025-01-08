@@ -113,6 +113,11 @@ class GeminiLiveWebsocketTransport(
                 )
             }
 
+            transportContext.callbacks.onInputsUpdated(
+                camera = false,
+                mic = transportContext.options.enableMic
+            )
+
             setState(TransportState.Connecting)
 
             return@runOnThreadReturningFuture initDevices()
@@ -161,7 +166,9 @@ class GeminiLiveWebsocketTransport(
 
                                 override fun onSessionEnded(reason: String, t: Throwable?) {
                                     thread.runOnThread {
+                                        Log.i(TAG, "onSessionEnded: $reason", t)
                                         setState(TransportState.Disconnected)
+                                        transportContext.callbacks.onDisconnected()
                                         promise.resolveErr(RTVIError.OtherError("Session disconnected: $reason"))
                                         t?.let {
                                             Log.e(TAG, "Session ended with exception", it)
@@ -279,6 +286,9 @@ class GeminiLiveWebsocketTransport(
 
     override fun enableMic(enable: Boolean): Future<Unit, RTVIError> {
         client?.micMuted = !enable
+        thread.runOnThread {
+            transportContext.callbacks.onInputsUpdated(camera = false, mic = enable)
+        }
         return resolvedPromiseOk(thread, Unit)
     }
 
