@@ -45,6 +45,9 @@ jobs:
       - name: Generate Maven repo for Gemini transport
         run: ./gradlew :pipecat-client-android-gemini-live-websocket:publishAllPublicationsToPipecatLocalRepoRepository
 
+      - name: Generate Maven repo for OpenAI transport
+        run: ./gradlew :pipecat-client-android-openai-realtime-webrtc:publishAllPublicationsToPipecatLocalRepoRepository
+
       - name: Upload Maven repo
         uses: actions/upload-artifact@v4
         with:
