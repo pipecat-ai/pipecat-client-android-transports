@@ -110,6 +110,8 @@ internal class WebRTCClient(private val onIncomingEvent: (OpenAIEvent) -> Unit, 
 
                     val msgString = String(bytes, Charsets.UTF_8)
 
+                    Log.i(TAG, "Got event from bot: $msgString")
+
                     val msg = JSON_INSTANCE.decodeFromString<OpenAIEvent>(msgString)
 
                     onIncomingEvent(msg)

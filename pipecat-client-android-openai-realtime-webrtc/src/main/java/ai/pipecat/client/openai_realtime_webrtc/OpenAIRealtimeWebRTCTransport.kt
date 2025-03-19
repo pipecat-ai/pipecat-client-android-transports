@@ -117,10 +117,15 @@ class OpenAIRealtimeWebRTCTransport(
     private var client: WebRTCClient? = null
 
     private val eventHandler = { msg: OpenAIEvent ->
-        Log.i(TAG, "Got OAI msg: $msg")
 
         thread.runOnThread {
             when (msg.type) {
+                "error" -> {
+                    if (msg.error != null) {
+                        transportContext.callbacks.onBackendError(msg.error.describe() ?: "<null>")
+                    }
+                }
+
                 "session.created" -> {
                     onSessionCreated()
                 }
