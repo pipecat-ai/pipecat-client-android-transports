@@ -59,23 +59,36 @@ class OpenAIRealtimeWebRTCTransport(
         private const val SERVICE_LLM = "llm"
         private const val OPTION_API_KEY = "api_key"
         private const val OPTION_INITIAL_USER_MESSAGE = "initial_user_message"
+        private const val OPTION_INITIAL_CONFIG = "initial_config"
         private const val OPTION_MODEL = "model"
 
         fun buildConfig(
             apiKey: String,
-            model: String = "gpt-4o-realtime-preview-latest",
-            initialUserMessage: String? = null, // TODO
-        ): List<ServiceConfig> = listOf(
-            ServiceConfig(
-                SERVICE_LLM, listOf(
-                    Option(OPTION_API_KEY, apiKey),
-                    Option(
-                        OPTION_INITIAL_USER_MESSAGE,
-                        initialUserMessage?.let { Value.Str(it) } ?: Value.Null),
-                    Option(OPTION_MODEL, model)
-                )
+            model: String = "gpt-4o-realtime-preview-2024-12-17",
+            initialUserMessage: String? = null,
+            initialConfig: OpenAIRealtimeSessionConfig? = null
+        ): List<ServiceConfig> {
+
+            val options = mutableListOf(
+                Option(OPTION_API_KEY, apiKey),
+                Option(OPTION_MODEL, model)
             )
-        )
+
+            if (initialConfig != null) {
+                options.add(Option(OPTION_INITIAL_CONFIG, JSON.decodeFromJsonElement<Value>(
+                    JSON.encodeToJsonElement(
+                        OpenAIRealtimeSessionConfig.serializer(),
+                        initialConfig
+                    )
+                )))
+            }
+
+            if (initialUserMessage != null) {
+                options.add(Option(OPTION_INITIAL_USER_MESSAGE, Value.Str(initialUserMessage)))
+            }
+
+            return listOf(ServiceConfig(SERVICE_LLM, options))
+        }
     }
 
     object AudioDevices {
@@ -103,6 +116,47 @@ class OpenAIRealtimeWebRTCTransport(
 
     private var client: WebRTCClient? = null
 
+    private val eventHandler = { msg: OpenAIEvent ->
+        Log.i(TAG, "Got OAI msg: $msg")
+
+        thread.runOnThread {
+            when (msg.type) {
+                "session.created" -> {
+                    onSessionCreated()
+                }
+
+                "input_audio_buffer.speech_started" -> {
+                    transportContext.callbacks.onUserStartedSpeaking()
+                }
+
+                "input_audio_buffer.speech_stopped" -> {
+                    transportContext.callbacks.onUserStoppedSpeaking()
+                }
+
+                "response.audio_transcript.delta" -> {
+                    if (msg.delta != null) {
+                        transportContext.callbacks.onBotTTSText(
+                            MsgServerToClient.Data.BotTTSTextData(
+                                msg.delta
+                            )
+                        )
+                    }
+                }
+
+                "output_audio_buffer.started" -> {
+                    transportContext.callbacks.onBotStartedSpeaking()
+                }
+
+                "output_audio_buffer.cleared", "output_audio_buffer.stopped" -> {
+                    transportContext.callbacks.onBotStoppedSpeaking()
+                }
+
+                else -> {
+                    Log.i(TAG, "Ignoring incoming event with type '${msg.type}'")
+                }
+            }
+        }
+    }
 
     override fun initDevices(): Future<Unit, RTVIError> = resolvedPromiseOk(thread, Unit)
 
@@ -119,7 +173,6 @@ class OpenAIRealtimeWebRTCTransport(
                 )
             }
 
-            // TODO ???
             transportContext.callbacks.onInputsUpdated(
                 camera = false,
                 mic = transportContext.options.enableMic
@@ -128,7 +181,7 @@ class OpenAIRealtimeWebRTCTransport(
             setState(TransportState.Connecting)
 
             try {
-                client = WebRTCClient(appContext)
+                client = WebRTCClient(eventHandler, appContext)
             } catch (e: Exception) {
                 return@runOnThreadReturningFuture resolvedPromiseErr(
                     thread,
@@ -136,13 +189,13 @@ class OpenAIRealtimeWebRTCTransport(
                 )
             }
 
+            enableMic(transportContext.options.enableMic)
+
             val options = transportContext.options.params.config.getOptionsFor(SERVICE_LLM)
 
             val apiKey = (options?.getValueFor(OPTION_API_KEY) as? Value.Str)?.value
             val model = (options?.getValueFor(OPTION_MODEL) as? Value.Str)?.value
-            // TODO
-            val initialUserMessage =
-                (options?.getValueFor(OPTION_INITIAL_USER_MESSAGE) as? Value.Str)?.value
+
 
             if (apiKey == null) {
                 return@runOnThreadReturningFuture resolvedPromiseErr(
@@ -169,7 +222,6 @@ class OpenAIRealtimeWebRTCTransport(
                             model = model
                         )
 
-                        // TODO
                         val cb = transportContext.callbacks
                         setState(TransportState.Connected)
                         cb.onConnected()
@@ -179,20 +231,60 @@ class OpenAIRealtimeWebRTCTransport(
                         cb.onBotReady("local", emptyList())
                         promise.resolveOk(Unit)
 
-                    } catch(e: Exception) {
+                    } catch (e: Exception) {
                         promise.resolveErr(RTVIError.ExceptionThrown(e))
                     }
                 }
             }
         }
 
+    private fun onSessionCreated() {
+        val options = transportContext.options.params.config.getOptionsFor(SERVICE_LLM)
+
+        val initialUserMessage =
+            (options?.getValueFor(OPTION_INITIAL_USER_MESSAGE) as? Value.Str)?.value
+
+        val initialConfig = options?.getValueFor(OPTION_INITIAL_CONFIG)
+
+        if (initialConfig != null) {
+            sendConfigUpdate(initialConfig)
+        }
+
+        if (initialUserMessage != null) {
+            sendConversationMessage(role = "user", text = initialUserMessage)
+        }
+    }
+
+    fun sendConfigUpdate(config: Value) {
+        client?.sendDataMessage(
+            OpenAISessionUpdate.serializer(),
+            OpenAISessionUpdate.of(config)
+        )
+    }
+
+    fun sendConversationMessage(role: String, text: String) {
+        client?.sendDataMessage(
+            OpenAIConversationItemCreate.serializer(),
+            OpenAIConversationItemCreate.of(
+                OpenAIConversationItemCreate.Item.message(
+                    role = role,
+                    text = text
+                )
+            )
+        )
+        client?.sendDataMessage(
+            OpenAIResponseCreate.serializer(),
+            OpenAIResponseCreate.new()
+        )
+    }
+
     override fun disconnect(): Future<Unit, RTVIError> = thread.runOnThreadReturningFuture {
         withPromise(thread) { promise ->
+
+            val clientRef = client
+            client = null
+
             MainScope().launch {
-
-                val clientRef = client
-                client = null
-
                 try {
                     if (clientRef != null) {
                         clientRef.dispose()
@@ -229,7 +321,7 @@ class OpenAIRealtimeWebRTCTransport(
 
                                 Log.i(TAG, "Sending message as ${role.value}: '${content.value}'")
 
-                                // TODO client?.sendUserMessage(role = role.value, content = content.value)
+                                sendConversationMessage(role = role.value, text = content.value)
                             }
 
                             transportContext.onMessage(
@@ -304,11 +396,11 @@ class OpenAIRealtimeWebRTCTransport(
 
     override fun isCamEnabled() = false
 
-    override fun isMicEnabled() = false // TODO client?.micMuted?.not() ?: false
+    override fun isMicEnabled() = client?.isAudioTrackEnabled() ?: false
 
     override fun enableMic(enable: Boolean): Future<Unit, RTVIError> {
-        // TODO
         thread.runOnThread {
+            client?.setAudioTrackEnabled(enable)
             transportContext.callbacks.onInputsUpdated(camera = false, mic = enable)
         }
         return resolvedPromiseOk(thread, Unit)

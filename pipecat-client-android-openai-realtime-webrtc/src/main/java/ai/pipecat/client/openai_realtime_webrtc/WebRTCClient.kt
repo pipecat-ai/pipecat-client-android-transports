@@ -7,8 +7,11 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.KSerializer
+import kotlinx.serialization.json.Json
 import org.webrtc.AudioSource
 import org.webrtc.AudioTrack
 import org.webrtc.DataChannel
@@ -22,16 +25,20 @@ import org.webrtc.SdpObserver
 import org.webrtc.SessionDescription
 import org.webrtc.audio.JavaAudioDeviceModule
 import java.net.URL
+import java.nio.ByteBuffer
 import java.util.concurrent.atomic.AtomicReference
 import javax.net.ssl.HttpsURLConnection
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
-class WebRTCClient(context: Context) {
+private val JSON_INSTANCE = Json { ignoreUnknownKeys = true }
+
+internal class WebRTCClient(private val onIncomingEvent: (OpenAIEvent) -> Unit, context: Context) {
     private val peerConnectionFactory: PeerConnectionFactory
     private val peerConnection: PeerConnection
     private val audioSource: AudioSource
     private val localAudioTrack: AudioTrack
+    private val dataChannel: DataChannel
     private val negotiateJob = AtomicReference<Job?>(null)
 
     companion object {
@@ -87,6 +94,32 @@ class WebRTCClient(context: Context) {
         } else {
             Log.e(TAG, "Failed to add audio track")
         }
+
+        dataChannel = peerConnection.createDataChannel("oai-events", DataChannel.Init())
+
+        dataChannel.registerObserver(object : DataChannel.Observer {
+            override fun onBufferedAmountChange(p0: Long) {}
+            override fun onStateChange() {}
+
+            override fun onMessage(buf: DataChannel.Buffer) {
+
+                try {
+
+                    val bytes = ByteArray(buf.data.remaining())
+                    buf.data.get(bytes)
+
+                    val msgString = String(bytes, Charsets.UTF_8)
+
+                    val msg = JSON_INSTANCE.decodeFromString<OpenAIEvent>(msgString)
+
+                    onIncomingEvent(msg)
+
+                } catch (e: Exception) {
+                    Log.e(TAG, "Failed to parse incoming event", e)
+                }
+            }
+
+        })
     }
 
     private fun createOffer(sdpObserver: SdpObserver) {
@@ -99,15 +132,36 @@ class WebRTCClient(context: Context) {
         peerConnection.createOffer(sdpObserver, constraints)
     }
 
+    fun setAudioTrackEnabled(enabled: Boolean) {
+        localAudioTrack.setEnabled(enabled)
+    }
+
+    fun isAudioTrackEnabled() = localAudioTrack.enabled()
+
+    fun <T> sendDataMessage(serializer: KSerializer<T>, msg: T) {
+
+        val msgString = JSON_INSTANCE.encodeToString(serializer, msg)
+
+        Log.i(TAG, "Sending message to bot: $msgString")
+
+        dataChannel.send(
+            DataChannel.Buffer(
+                ByteBuffer.wrap(
+                    msgString.toByteArray(charset = Charsets.UTF_8)
+                ),
+                false
+            )
+        )
+    }
+
     suspend fun dispose() {
         try {
             negotiateJob.get()?.cancelAndJoin()
-
             localAudioTrack.dispose()
             audioSource.dispose()
+            dataChannel.dispose()
             peerConnection.close()
             peerConnectionFactory.dispose()
-            Log.d(TAG, "Resources disposed")
         } catch (e: Exception) {
             Log.e(TAG, "Error disposing resources", e)
         }
@@ -176,13 +230,8 @@ class WebRTCClient(context: Context) {
             throw Exception("No API key provided")
         }
 
-        val job = Job()
-        if (!negotiateJob.compareAndSet(null, job)) {
-            throw Exception("negotiateConnection already in progress")
-        }
-
-        coroutineScope {
-            withContext(job) {
+        val job = coroutineScope {
+            launch {
                 try {
                     val offer = createOffer()
                     Log.d(TAG, "Created offer SDP: ${offer.description}")
@@ -236,6 +285,10 @@ class WebRTCClient(context: Context) {
                     negotiateJob.set(null)
                 }
             }
+        }
+
+        if (!negotiateJob.compareAndSet(null, job)) {
+            throw Exception("negotiateConnection already in progress")
         }
     }
 

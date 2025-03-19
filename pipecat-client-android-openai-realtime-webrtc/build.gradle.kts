@@ -45,7 +45,6 @@ dependencies {
 
     implementation(libs.androidx.core.ktx)
     implementation(libs.kotlinx.serialization.json)
-    implementation(libs.okhttp)
 
     api(libs.pipecat.client)
 
