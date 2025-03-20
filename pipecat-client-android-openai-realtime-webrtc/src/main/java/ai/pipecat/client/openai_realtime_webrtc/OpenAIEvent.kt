@@ -6,7 +6,8 @@ import kotlinx.serialization.Serializable
 internal data class OpenAIEvent(
     val type: String,
     val delta: String? = null,
-    val error: Error? = null
+    val error: Error? = null,
+    val transcript: String? = null
 ) {
     @Serializable
     internal data class Error(

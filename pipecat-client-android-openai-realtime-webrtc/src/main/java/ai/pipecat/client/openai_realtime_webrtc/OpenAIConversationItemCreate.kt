@@ -3,7 +3,7 @@ package ai.pipecat.client.openai_realtime_webrtc
 import kotlinx.serialization.Serializable
 
 @Serializable
-data class OpenAIConversationItemCreate private constructor(
+internal data class OpenAIConversationItemCreate private constructor(
     val type: String,
     val item: Item
 ) {
@@ -23,7 +23,10 @@ data class OpenAIConversationItemCreate private constructor(
             fun message(role: String, text: String) = Item(
                 type = "message",
                 role = role,
-                content = listOf(Content(type = "input_text", text = text))
+                content = listOf(Content(type = when (role) {
+                    "assistant" -> "text"
+                    else -> "input_text"
+                }, text = text))
             )
         }
     }

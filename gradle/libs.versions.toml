@@ -9,7 +9,7 @@ kotlinxSerializationPlugin = "2.0.20"
 dokka = "1.9.20"
 androidxTest = "1.6.1"
 okhttp = "4.12.0"
-pipecatClient = "0.3.0"
+pipecatClient = "0.3.3"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }

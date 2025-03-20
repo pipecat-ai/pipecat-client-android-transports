@@ -11,8 +11,12 @@ data class OpenAIRealtimeSessionConfig(
     val voice: String? = null,
     @SerialName("turn_detection")
     val turnDetection: Value? = null,
+    @SerialName("input_audio_noise_reduction")
+    val inputAudioNoiseReduction: Value? = null,
     val tools: Value? = null,
     @SerialName("tool_choice")
     val toolChoice: String? = null,
     val temperature: Float? = null,
+    @SerialName("input_audio_transcription")
+    val inputAudioTranscription: Value? = null
 )

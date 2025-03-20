@@ -1,5 +1,6 @@
 package ai.pipecat.client.openai_realtime_webrtc
 
+import ai.pipecat.client.helper.LLMContextMessage
 import ai.pipecat.client.result.Future
 import ai.pipecat.client.result.RTVIError
 import ai.pipecat.client.result.resolvedPromiseErr
@@ -19,6 +20,7 @@ import ai.pipecat.client.types.ParticipantId
 import ai.pipecat.client.types.ParticipantTracks
 import ai.pipecat.client.types.ServiceConfig
 import ai.pipecat.client.types.Tracks
+import ai.pipecat.client.types.Transcript
 import ai.pipecat.client.types.TransportState
 import ai.pipecat.client.types.Value
 import ai.pipecat.client.types.getOptionsFor
@@ -29,6 +31,7 @@ import android.media.AudioManager
 import android.util.Log
 import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.launch
+import kotlinx.serialization.KSerializer
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.decodeFromJsonElement
 import kotlinx.serialization.json.encodeToJsonElement
@@ -48,6 +51,12 @@ private val LOCAL_PARTICIPANT = Participant(
     local = true
 )
 
+private inline fun <reified E> E.convertToValue(serializer: KSerializer<E>) =
+    JSON.decodeFromJsonElement<Value>(JSON.encodeToJsonElement(serializer, this))
+
+private inline fun <reified E> Value.convertFromValue(serializer: KSerializer<E>): E =
+    JSON.decodeFromJsonElement(serializer, JSON.encodeToJsonElement(Value.serializer(), this))
+
 class OpenAIRealtimeWebRTCTransport(
     private val transportContext: TransportContext,
     androidContext: Context
@@ -58,14 +67,14 @@ class OpenAIRealtimeWebRTCTransport(
 
         private const val SERVICE_LLM = "llm"
         private const val OPTION_API_KEY = "api_key"
-        private const val OPTION_INITIAL_USER_MESSAGE = "initial_user_message"
+        private const val OPTION_INITIAL_MESSAGES = "initial_messages"
         private const val OPTION_INITIAL_CONFIG = "initial_config"
         private const val OPTION_MODEL = "model"
 
         fun buildConfig(
             apiKey: String,
             model: String = "gpt-4o-realtime-preview-2024-12-17",
-            initialUserMessage: String? = null,
+            initialMessages: List<LLMContextMessage>? = null,
             initialConfig: OpenAIRealtimeSessionConfig? = null
         ): List<ServiceConfig> {
 
@@ -75,16 +84,19 @@ class OpenAIRealtimeWebRTCTransport(
             )
 
             if (initialConfig != null) {
-                options.add(Option(OPTION_INITIAL_CONFIG, JSON.decodeFromJsonElement<Value>(
-                    JSON.encodeToJsonElement(
-                        OpenAIRealtimeSessionConfig.serializer(),
-                        initialConfig
+                options.add(
+                    Option(
+                        OPTION_INITIAL_CONFIG, initialConfig.convertToValue(
+                            OpenAIRealtimeSessionConfig.serializer()
+                        )
                     )
-                )))
+                )
             }
 
-            if (initialUserMessage != null) {
-                options.add(Option(OPTION_INITIAL_USER_MESSAGE, Value.Str(initialUserMessage)))
+            if (initialMessages != null) {
+                options.add(Option(OPTION_INITIAL_MESSAGES, Value.Array(initialMessages.map {
+                    it.convertToValue(LLMContextMessage.serializer())
+                })))
             }
 
             return listOf(ServiceConfig(SERVICE_LLM, options))
@@ -143,6 +155,17 @@ class OpenAIRealtimeWebRTCTransport(
                         transportContext.callbacks.onBotTTSText(
                             MsgServerToClient.Data.BotTTSTextData(
                                 msg.delta
+                            )
+                        )
+                    }
+                }
+
+                "conversation.item.input_audio_transcription.completed" -> {
+                    if (msg.transcript != null) {
+                        transportContext.callbacks.onUserTranscript(
+                            Transcript(
+                                text = msg.transcript,
+                                final = true
                             )
                         )
                     }
@@ -246,8 +269,8 @@ class OpenAIRealtimeWebRTCTransport(
     private fun onSessionCreated() {
         val options = transportContext.options.params.config.getOptionsFor(SERVICE_LLM)
 
-        val initialUserMessage =
-            (options?.getValueFor(OPTION_INITIAL_USER_MESSAGE) as? Value.Str)?.value
+        val initialMessages =
+            (options?.getValueFor(OPTION_INITIAL_MESSAGES) as? Value.Array)?.value
 
         val initialConfig = options?.getValueFor(OPTION_INITIAL_CONFIG)
 
@@ -255,8 +278,11 @@ class OpenAIRealtimeWebRTCTransport(
             sendConfigUpdate(initialConfig)
         }
 
-        if (initialUserMessage != null) {
-            sendConversationMessage(role = "user", text = initialUserMessage)
+        if (initialMessages != null) {
+            for (message in initialMessages.map { it.convertFromValue(LLMContextMessage.serializer()) }) {
+                sendConversationMessage(role = message.role, text = message.content)
+            }
+            requestResponseFromBot()
         }
     }
 
@@ -277,6 +303,9 @@ class OpenAIRealtimeWebRTCTransport(
                 )
             )
         )
+    }
+
+    fun requestResponseFromBot() {
         client?.sendDataMessage(
             OpenAIResponseCreate.serializer(),
             OpenAIResponseCreate.new()
@@ -328,6 +357,8 @@ class OpenAIRealtimeWebRTCTransport(
 
                                 sendConversationMessage(role = role.value, text = content.value)
                             }
+
+                            requestResponseFromBot()
 
                             transportContext.onMessage(
                                 MsgServerToClient(
