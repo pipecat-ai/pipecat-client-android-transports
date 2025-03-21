@@ -106,7 +106,7 @@ val options = RTVIClientOptions(
                 voice = "ballad",
                 turnDetection = Value.Object("type" to Value.Str("semantic_vad")),
                 inputAudioNoiseReduction = Value.Object("type" to Value.Str("near_field")),
-                inputAudioTranscription = Value.Object("model" to Value.Str("whisper-1"))
+                inputAudioTranscription = Value.Object("model" to Value.Str("gpt-4o-transcribe"))
             )
         )
     )
