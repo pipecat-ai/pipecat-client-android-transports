@@ -79,3 +79,42 @@ client.start().withCallback {
     // ...
 }
 ```
+
+
+## OpenAI Realtime WebRTC Transport
+
+Add the following dependency to your `build.gradle` file:
+
+```
+implementation "ai.pipecat:openai-realtime-webrtc-transport:0.3.3"
+```
+
+Instantiate from your code:
+
+```kotlin
+val transport = OpenAIRealtimeWebRTCTransport.Factory(context)
+
+val options = RTVIClientOptions(
+    params = RTVIClientParams(
+        baseUrl = null,
+        config = OpenAIRealtimeWebRTCTransport.buildConfig(
+            apiKey = apiKey,
+            initialMessages = listOf(
+                LLMContextMessage(role = "user", content = "How tall is the Eiffel Tower?")
+            ),
+            initialConfig = OpenAIRealtimeSessionConfig(
+                voice = "ballad",
+                turnDetection = Value.Object("type" to Value.Str("semantic_vad")),
+                inputAudioNoiseReduction = Value.Object("type" to Value.Str("near_field")),
+                inputAudioTranscription = Value.Object("model" to Value.Str("whisper-1"))
+            )
+        )
+    )
+)
+
+val client = RTVIClient(transport, callbacks, options)
+
+client.start().withCallback {
+    // ...
+}
+```
