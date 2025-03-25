@@ -1,6 +1,8 @@
 package ai.pipecat.client.openai_realtime_webrtc
 
 import ai.pipecat.client.helper.LLMContextMessage
+import ai.pipecat.client.helper.LLMFunctionCall
+import ai.pipecat.client.helper.LLMFunctionCallResult
 import ai.pipecat.client.result.Future
 import ai.pipecat.client.result.RTVIError
 import ai.pipecat.client.result.resolvedPromiseErr
@@ -32,6 +34,7 @@ import android.util.Log
 import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.launch
 import kotlinx.serialization.KSerializer
+import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.decodeFromJsonElement
 import kotlinx.serialization.json.encodeToJsonElement
@@ -177,6 +180,27 @@ class OpenAIRealtimeWebRTCTransport(
 
                 "output_audio_buffer.cleared", "output_audio_buffer.stopped" -> {
                     transportContext.callbacks.onBotStoppedSpeaking()
+                }
+
+                "response.function_call_arguments.done" -> {
+
+                    if (msg.name == null || msg.callId == null || msg.arguments == null) {
+                        Log.e(TAG, "Ignoring function call response with null arguments")
+                        return@runOnThread
+                    }
+
+                    val data = LLMFunctionCall(
+                        functionName = msg.name,
+                        toolCallId = msg.callId,
+                        args = msg.arguments
+                    )
+
+                    transportContext.onMessage(MsgServerToClient(
+                        id = null,
+                        label = "rtvi-ai",
+                        type = "llm-function-call",
+                        data = JSON.encodeToJsonElement(data)
+                    ))
                 }
 
                 else -> {
@@ -384,6 +408,32 @@ class OpenAIRealtimeWebRTCTransport(
                 } catch (e: Exception) {
                     return resolvedPromiseErr(thread, RTVIError.ExceptionThrown(e))
                 }
+            }
+
+            "llm-function-call-result" -> {
+
+                val messageData = message.data ?: return resolvedPromiseErr(
+                    thread,
+                    RTVIError.OtherError("Function call result must not be null")
+                )
+
+                val data: LLMFunctionCallResult = JSON.decodeFromJsonElement(messageData)
+
+                client?.sendDataMessage(
+                    Value.serializer(),
+                    Value.Object(
+                        "type" to Value.Str("conversation.item.create"),
+                        "item" to Value.Object(
+                            "type" to Value.Str("function_call_output"),
+                            "call_id" to Value.Str(data.toolCallId),
+                            "output" to Value.Str(JSON.encodeToString(data.result))
+                        )
+                    )
+                )
+
+                requestResponseFromBot()
+
+                return resolvedPromiseOk(thread, Unit)
             }
 
             else -> {
