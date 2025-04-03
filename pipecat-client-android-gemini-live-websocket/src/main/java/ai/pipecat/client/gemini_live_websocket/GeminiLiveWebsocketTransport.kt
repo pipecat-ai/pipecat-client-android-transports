@@ -64,7 +64,7 @@ class GeminiLiveWebsocketTransport(
             model: String = "models/gemini-2.0-flash-exp",
             initialUserMessage: String? = null,
             generationConfig: Value.Object = Value.Object(),
-            systemInstruction: String? = null,
+            systemInstruction: Value? = null,
             tools: Value.Array = Value.Array()
         ): List<ServiceConfig> = listOf(
             ServiceConfig(
@@ -77,8 +77,7 @@ class GeminiLiveWebsocketTransport(
                         OPTION_MODEL_CONFIG, Value.Object(
                             "model" to Value.Str(model),
                             "generation_config" to generationConfig,
-                            "system_instruction" to (systemInstruction?.let { Value.Str(it) }
-                                ?: Value.Null),
+                            "system_instruction" to (systemInstruction ?: Value.Null),
                             "tools" to tools,
                         )
                     )
