@@ -38,10 +38,16 @@ android {
     kotlinOptions {
         jvmTarget = "1.8"
     }
+
+    sourceSets {
+        getByName("main") {
+            jniLibs.srcDirs("$rootDir/libs/webrtc/jniLibs")
+        }
+    }
 }
 
 dependencies {
-    implementation(files("libs/libwebrtc-6998.jar"))
+    implementation(files("$rootDir/libs/webrtc/libs/libwebrtc-6998.jar"))
 
     implementation(libs.androidx.core.ktx)
     implementation(libs.kotlinx.serialization.json)
@@ -65,7 +71,7 @@ publishing {
         register<MavenPublication>("release") {
             groupId = "ai.pipecat"
             artifactId = "openai-realtime-webrtc-transport"
-            version = "0.3.4"
+            version = "0.3.5"
 
             pom {
                 name.set("OpenAI Realtime WebRTC Transport")

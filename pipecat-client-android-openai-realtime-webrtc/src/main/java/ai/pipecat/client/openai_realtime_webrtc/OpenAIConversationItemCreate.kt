@@ -3,6 +3,7 @@ package ai.pipecat.client.openai_realtime_webrtc
 import kotlinx.serialization.Serializable
 
 @Serializable
+@ConsistentCopyVisibility
 internal data class OpenAIConversationItemCreate private constructor(
     val type: String,
     val item: Item

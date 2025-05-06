@@ -8,7 +8,7 @@ plugins {
 }
 
 android {
-    namespace = "ai.pipecat.client.daily"
+    namespace = "ai.pipecat.client.small_webrtc_transport"
     compileSdk = 34
 
     defaultConfig {
@@ -38,13 +38,24 @@ android {
     kotlinOptions {
         jvmTarget = "1.8"
     }
+
+    sourceSets {
+        getByName("main") {
+            jniLibs.srcDirs("$rootDir/libs/webrtc/jniLibs")
+        }
+    }
 }
 
 dependencies {
+    implementation(files("$rootDir/libs/webrtc/libs/libwebrtc-6998.jar"))
+
     implementation(libs.androidx.core.ktx)
     implementation(libs.kotlinx.serialization.json)
 
-    api(libs.daily.android.client)
+    implementation(libs.ktor.client.android)
+    implementation(libs.ktor.client.content.negotiation)
+    implementation(libs.ktor.serialization.kotlinx.json)
+
     api(libs.pipecat.client)
 
     androidTestImplementation(libs.androidx.runner)
@@ -63,12 +74,12 @@ publishing {
     publications {
         register<MavenPublication>("release") {
             groupId = "ai.pipecat"
-            artifactId = "daily-transport"
+            artifactId = "small-webrtc-transport"
             version = "0.3.5"
 
             pom {
-                name.set("Pipecat Client Daily Transport")
-                description.set("Daily Pipecat transport for Android")
+                name.set("Small WebRTC Transport")
+                description.set("Small WebRTC Pipecat transport for Android")
                 url.set("https://github.com/pipecat-ai/pipecat-client-android-transports")
 
                 developers {
