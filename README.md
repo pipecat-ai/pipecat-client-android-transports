@@ -13,7 +13,7 @@ The following RTVI transports are available in this repository:
 Add the following dependency to your `build.gradle` file:
 
 ```
-implementation "ai.pipecat:daily-transport:0.3.3"
+implementation "ai.pipecat:daily-transport:0.3.5"
 ```
 
 Instantiate from your code:
@@ -46,7 +46,7 @@ using Kotlin Coroutines (`client.start().await()`).
 Add the following dependency to your `build.gradle` file:
 
 ```
-implementation "ai.pipecat:gemini-live-websocket-transport:0.3.3"
+implementation "ai.pipecat:gemini-live-websocket-transport:0.3.5"
 ```
 
 Instantiate from your code:
@@ -75,7 +75,7 @@ val options = RTVIClientOptions(
 
 val client = RTVIClient(transport, callbacks, options)
 
-client.start().withCallback {
+client.connect().withCallback {
     // ...
 }
 ```
@@ -114,7 +114,34 @@ val options = RTVIClientOptions(
 
 val client = RTVIClient(transport, callbacks, options)
 
-client.start().withCallback {
+client.connect().withCallback {
+    // ...
+}
+```
+
+
+## Small WebRTC Transport
+
+Add the following dependency to your `build.gradle` file:
+
+```
+implementation "ai.pipecat:small-webrtc-transport:0.3.5"
+```
+
+Instantiate from your code:
+
+```kotlin
+val options = RTVIClientOptions(
+    params = RTVIClientParams(baseUrl = null),
+    enableMic = true,
+    enableCam = true
+)
+
+val connectionUrl = "http://localhost:7860/api/offer"
+
+val client = RTVIClient(SmallWebRTCTransport.Factory(context, connectionUrl), callbacks, options)
+
+client.connect().withCallback {
     // ...
 }
 ```

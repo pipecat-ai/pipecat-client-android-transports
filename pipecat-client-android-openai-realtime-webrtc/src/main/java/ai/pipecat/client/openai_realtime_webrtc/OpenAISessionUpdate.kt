@@ -4,6 +4,7 @@ import ai.pipecat.client.types.Value
 import kotlinx.serialization.Serializable
 
 @Serializable
+@ConsistentCopyVisibility
 internal data class OpenAISessionUpdate private constructor(
     val type: String,
     val session: Value
