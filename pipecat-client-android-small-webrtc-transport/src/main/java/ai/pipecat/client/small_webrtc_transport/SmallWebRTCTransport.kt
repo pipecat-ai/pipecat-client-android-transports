@@ -263,7 +263,7 @@ class SmallWebRTCTransport internal constructor(
     override fun expiry() = null
 
     override fun enableCam(enable: Boolean): Future<Unit, RTVIError> =
-        client?.setCamMode(selectedCam)
+        client?.setCamMode(if (enable) selectedCam else null)
             ?: resolvedPromiseErr(thread, RTVIError.TransportNotInitialized)
 
     override fun tracks() = client?.getTracks() ?: EMPTY_TRACKS
