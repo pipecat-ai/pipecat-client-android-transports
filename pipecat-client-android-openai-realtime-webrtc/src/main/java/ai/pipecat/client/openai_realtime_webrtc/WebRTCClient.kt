@@ -12,6 +12,7 @@ import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonElement
 import org.webrtc.AudioSource
 import org.webrtc.AudioTrack
 import org.webrtc.DataChannel
@@ -31,9 +32,9 @@ import javax.net.ssl.HttpsURLConnection
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
-private val JSON_INSTANCE = Json { ignoreUnknownKeys = true }
+internal val JSON_INSTANCE = Json { ignoreUnknownKeys = true }
 
-internal class WebRTCClient(private val onIncomingEvent: (OpenAIEvent) -> Unit, context: Context) {
+internal class WebRTCClient(private val onIncomingEvent: (String) -> Unit, context: Context) {
     private val peerConnectionFactory: PeerConnectionFactory
     private val peerConnection: PeerConnection
     private val audioSource: AudioSource
@@ -112,9 +113,7 @@ internal class WebRTCClient(private val onIncomingEvent: (OpenAIEvent) -> Unit, 
 
                     Log.i(TAG, "Got event from bot: $msgString")
 
-                    val msg = JSON_INSTANCE.decodeFromString<OpenAIEvent>(msgString)
-
-                    onIncomingEvent(msg)
+                    onIncomingEvent(msgString)
 
                 } catch (e: Exception) {
                     Log.e(TAG, "Failed to parse incoming event", e)
@@ -141,8 +140,10 @@ internal class WebRTCClient(private val onIncomingEvent: (OpenAIEvent) -> Unit, 
     fun isAudioTrackEnabled() = localAudioTrack.enabled()
 
     fun <T> sendDataMessage(serializer: KSerializer<T>, msg: T) {
+        sendDataMessage(JSON_INSTANCE.encodeToString(serializer, msg))
+    }
 
-        val msgString = JSON_INSTANCE.encodeToString(serializer, msg)
+    fun sendDataMessage(msgString: String) {
 
         Log.i(TAG, "Sending message to bot: $msgString")
 
