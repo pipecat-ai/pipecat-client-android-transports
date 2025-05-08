@@ -36,6 +36,7 @@ import kotlinx.coroutines.launch
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.decodeFromJsonElement
 import kotlinx.serialization.json.encodeToJsonElement
 
@@ -131,9 +132,20 @@ class OpenAIRealtimeWebRTCTransport(
 
     private var client: WebRTCClient? = null
 
-    private val eventHandler = { msg: OpenAIEvent ->
+    private val eventHandler = { msgString: String ->
+
+        val msgJson = JSON_INSTANCE.parseToJsonElement(msgString)
+
+        val msg = JSON_INSTANCE.decodeFromJsonElement<OpenAIEvent>(msgJson)
 
         thread.runOnThread {
+
+            transportContext.callbacks.onGenericMessage(MsgServerToClient(
+                label = "rtvi-ai",
+                type = "openai-generic-msg",
+                data = msgJson
+            ))
+
             when (msg.type) {
                 "error" -> {
                     if (msg.error != null) {
@@ -195,16 +207,18 @@ class OpenAIRealtimeWebRTCTransport(
                         args = msg.arguments
                     )
 
-                    transportContext.onMessage(MsgServerToClient(
-                        id = null,
-                        label = "rtvi-ai",
-                        type = "llm-function-call",
-                        data = JSON.encodeToJsonElement(data)
-                    ))
+                    transportContext.onMessage(
+                        MsgServerToClient(
+                            id = null,
+                            label = "rtvi-ai",
+                            type = "llm-function-call",
+                            data = JSON.encodeToJsonElement(data)
+                        )
+                    )
                 }
 
                 else -> {
-                    Log.i(TAG, "Ignoring incoming event with type '${msg.type}'")
+
                 }
             }
         }
@@ -358,7 +372,14 @@ class OpenAIRealtimeWebRTCTransport(
         }
     }
 
-    override fun sendMessage(message: MsgClientToServer): Future<Unit, RTVIError> {
+    override fun sendMessage(message: MsgClientToServer) = thread.runOnThreadReturningFuture {
+
+        if (client == null) {
+            return@runOnThreadReturningFuture resolvedPromiseErr(
+                thread,
+                RTVIError.TransportNotInitialized
+            )
+        }
 
         when (message.type) {
             "action" -> {
@@ -397,25 +418,26 @@ class OpenAIRealtimeWebRTCTransport(
                                 )
                             )
 
-                            return resolvedPromiseOk(thread, Unit)
+                            resolvedPromiseOk(thread, Unit)
                         }
 
                         else -> {
-                            return operationNotSupported()
+                            operationNotSupported()
                         }
                     }
 
                 } catch (e: Exception) {
-                    return resolvedPromiseErr(thread, RTVIError.ExceptionThrown(e))
+                    resolvedPromiseErr(thread, RTVIError.ExceptionThrown(e))
                 }
             }
 
             "llm-function-call-result" -> {
 
-                val messageData = message.data ?: return resolvedPromiseErr(
-                    thread,
-                    RTVIError.OtherError("Function call result must not be null")
-                )
+                val messageData =
+                    message.data ?: return@runOnThreadReturningFuture resolvedPromiseErr(
+                        thread,
+                        RTVIError.OtherError("Function call result must not be null")
+                    )
 
                 val data: LLMFunctionCallResult = JSON.decodeFromJsonElement(messageData)
 
@@ -433,11 +455,23 @@ class OpenAIRealtimeWebRTCTransport(
 
                 requestResponseFromBot()
 
-                return resolvedPromiseOk(thread, Unit)
+                resolvedPromiseOk(thread, Unit)
+            }
+
+            "custom-request" -> {
+                val messageData =
+                    message.data ?: return@runOnThreadReturningFuture resolvedPromiseErr(
+                        thread,
+                        RTVIError.OtherError("Custom request data is null")
+                    )
+
+                client?.sendDataMessage(JsonElement.serializer(), messageData)
+
+                resolvedPromiseOk(thread, Unit)
             }
 
             else -> {
-                return operationNotSupported()
+                operationNotSupported()
             }
         }
     }
