@@ -100,12 +100,10 @@ internal class WebRTCClient(
     private val audioTransceiver: RtpTransceiver
     private val videoTransceiver: RtpTransceiver
     
-    private val audioSource: AudioSource
-    private val localAudioTrack: AudioTrack
+    private var audioSource: AudioSource? = null
 
-    private val videoSource: VideoSource
+    private var videoSource: VideoSource? = null
     private var cameraManager: CameraManager? = null
-    private val localVideoTrack: VideoTrack
 
     private val dataChannel: DataChannel
     private val negotiateJob = AtomicReference<Job?>(null)
@@ -170,9 +168,6 @@ internal class WebRTCClient(
 
         Log.d(TAG, "PeerConnection created")
 
-        audioSource = peerConnectionFactory.createAudioSource(MediaConstraints())
-        videoSource = peerConnectionFactory.createVideoSource(false)
-
         val transceiverParams = RtpTransceiver.RtpTransceiverInit(
             RtpTransceiver.RtpTransceiverDirection.SEND_RECV
         )
@@ -186,17 +181,6 @@ internal class WebRTCClient(
             MediaStreamTrack.MediaType.MEDIA_TYPE_VIDEO,
             transceiverParams
         )
-
-        localAudioTrack = peerConnectionFactory.createAudioTrack("mic", audioSource).apply {
-            TrackRegistry.add(this)
-        }
-
-        localVideoTrack = peerConnectionFactory.createVideoTrack("cam", videoSource).apply {
-            TrackRegistry.add(this)
-        }
-
-        audioTransceiver.sender.setTrack(localAudioTrack, false)
-        videoTransceiver.sender.setTrack(localVideoTrack, false)
 
         updateLocalTracks()
 
@@ -249,24 +233,51 @@ internal class WebRTCClient(
             val shouldEnableMic = enableMic.get()
             val shouldEnableCam = enableCam.get()
 
-            if (shouldEnableMic != localAudioTrack.enabled()) {
-                localAudioTrack.setEnabled(shouldEnableMic)
+            if (shouldEnableMic && audioSource == null) {
+                audioSource = peerConnectionFactory.createAudioSource(MediaConstraints())
+                peerConnectionFactory.createAudioTrack("mic", audioSource).apply {
+                    TrackRegistry.add(this)
+                    audioTransceiver.sender.setTrack(this, true)
+                }
+            } else if (!shouldEnableMic && audioSource != null) {
+                audioTransceiver.sender.track()?.let(TrackRegistry::remove)
+                audioTransceiver.sender.setTrack(null, false)
+                audioSource?.dispose()
+                audioSource = null
             }
 
             if (shouldEnableCam != null && shouldEnableCam != cameraManager?.mode) {
-                cameraManager = CameraManager(context, shouldEnableCam, videoSource)
-                localVideoTrack.setEnabled(true)
+
+                val source = videoSource ?: run {
+                    peerConnectionFactory.createVideoSource(false).apply {
+                        videoSource = this
+                    }
+                }
+
+                peerConnectionFactory.createVideoTrack("cam", source).apply {
+                    TrackRegistry.add(this)
+                    videoTransceiver.sender.setTrack(this, true)
+                }
+
+                cameraManager?.dispose()
+                cameraManager = CameraManager(context, shouldEnableCam, source)
 
             } else if (shouldEnableCam == null && cameraManager != null) {
-                localVideoTrack.setEnabled(false)
+
+                videoTransceiver.sender.track()?.let(TrackRegistry::remove)
+                videoTransceiver.sender.setTrack(null, false)
+
                 cameraManager?.dispose()
                 cameraManager = null
+
+                videoSource?.dispose()
+                videoSource = null
             }
 
             val newTracks = getTracks().copy(
                 local = ParticipantTracks(
-                    audio = if (shouldEnableMic) { localAudioTrack.pipecatId() } else null,
-                    video = if (shouldEnableCam != null) { localVideoTrack.pipecatId() } else null,
+                    audio = if (shouldEnableMic) { audioTransceiver.sender.track()?.pipecatId() } else null,
+                    video = if (shouldEnableCam != null) { videoTransceiver.sender.track()?.pipecatId() } else null,
                 )
             )
 
@@ -350,8 +361,8 @@ internal class WebRTCClient(
                     setMicEnabled(false)
                     audioTransceiver.dispose()
                     videoTransceiver.dispose()
-                    audioSource.dispose()
-                    videoSource.dispose()
+                    audioSource?.dispose()
+                    videoSource?.dispose()
                     dataChannel.dispose()
                     peerConnection.dispose()
                     peerConnectionFactory.dispose()
