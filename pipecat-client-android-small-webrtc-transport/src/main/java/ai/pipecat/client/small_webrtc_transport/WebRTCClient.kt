@@ -45,7 +45,6 @@ import org.webrtc.MediaStreamTrack
 import org.webrtc.PeerConnection
 import org.webrtc.PeerConnectionFactory
 import org.webrtc.RtpReceiver
-import org.webrtc.RtpSender
 import org.webrtc.RtpTransceiver
 import org.webrtc.SdpObserver
 import org.webrtc.SessionDescription
@@ -97,16 +96,17 @@ internal class WebRTCClient(
 ) {
     private val peerConnectionFactory: PeerConnectionFactory
     private val peerConnection: PeerConnection
+
+    private val audioTransceiver: RtpTransceiver
+    private val videoTransceiver: RtpTransceiver
     
     private val audioSource: AudioSource
     private val localAudioTrack: AudioTrack
-    private val audioSender: RtpSender
 
     private val videoSource: VideoSource
     private var cameraManager: CameraManager? = null
     private val localVideoTrack: VideoTrack
-    private val videoSender: RtpSender
-    
+
     private val dataChannel: DataChannel
     private val negotiateJob = AtomicReference<Job?>(null)
     private val pcId = AtomicReference<String?>(null)
@@ -173,15 +173,30 @@ internal class WebRTCClient(
         audioSource = peerConnectionFactory.createAudioSource(MediaConstraints())
         videoSource = peerConnectionFactory.createVideoSource(false)
 
+        val transceiverParams = RtpTransceiver.RtpTransceiverInit(
+            RtpTransceiver.RtpTransceiverDirection.SEND_RECV
+        )
+
+        audioTransceiver = peerConnection.addTransceiver(
+            MediaStreamTrack.MediaType.MEDIA_TYPE_AUDIO,
+            transceiverParams
+        )
+
+        videoTransceiver = peerConnection.addTransceiver(
+            MediaStreamTrack.MediaType.MEDIA_TYPE_VIDEO,
+            transceiverParams
+        )
+
         localAudioTrack = peerConnectionFactory.createAudioTrack("mic", audioSource).apply {
             TrackRegistry.add(this)
-            audioSender = peerConnection.addTrack(this)
         }
 
         localVideoTrack = peerConnectionFactory.createVideoTrack("cam", videoSource).apply {
             TrackRegistry.add(this)
-            videoSender = peerConnection.addTrack(this)
         }
+
+        audioTransceiver.sender.setTrack(localAudioTrack, false)
+        videoTransceiver.sender.setTrack(localVideoTrack, false)
 
         updateLocalTracks()
 
@@ -333,8 +348,8 @@ internal class WebRTCClient(
                 try {
                     setCamMode(null)
                     setMicEnabled(false)
-                    audioSender.dispose()
-                    videoSender.dispose()
+                    audioTransceiver.dispose()
+                    videoTransceiver.dispose()
                     audioSource.dispose()
                     videoSource.dispose()
                     dataChannel.dispose()
