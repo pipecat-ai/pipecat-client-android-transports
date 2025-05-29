@@ -113,6 +113,8 @@ class SmallWebRTCTransport internal constructor(
                                     Log.i(TAG, "Peer left, disconnecting")
                                     disconnect()
                                 }
+
+                                "renegotiate" -> negotiate()
                             }
 
                         } else {
@@ -146,29 +148,31 @@ class SmallWebRTCTransport internal constructor(
                 )
             }
 
-            withPromise(thread) { promise ->
+            negotiate()
+        }
 
-                MainScope().launch {
+    private fun negotiate() = withPromise<Unit, RTVIError>(thread) { promise ->
 
-                    try {
-                        client?.negotiateConnection(
-                            url = serverUrl,
-                            restartPc = false
-                        )
+        MainScope().launch {
 
-                        val cb = transportContext.callbacks
-                        setState(TransportState.Connected)
-                        cb.onConnected()
-                        cb.onParticipantJoined(LOCAL_PARTICIPANT)
-                        cb.onParticipantJoined(BOT_PARTICIPANT)
-                        promise.resolveOk(Unit)
+            try {
+                client?.negotiateConnection(
+                    url = serverUrl,
+                    restartPc = false
+                )
 
-                    } catch (e: Exception) {
-                        promise.resolveErr(RTVIError.ExceptionThrown(e))
-                    }
-                }
+                val cb = transportContext.callbacks
+                setState(TransportState.Connected)
+                cb.onConnected()
+                cb.onParticipantJoined(LOCAL_PARTICIPANT)
+                cb.onParticipantJoined(BOT_PARTICIPANT)
+                promise.resolveOk(Unit)
+
+            } catch (e: Exception) {
+                promise.resolveErr(RTVIError.ExceptionThrown(e))
             }
         }
+    }
 
     override fun disconnect(): Future<Unit, RTVIError> = thread.runOnThreadReturningFuture {
         withPromise(thread) { promise ->
