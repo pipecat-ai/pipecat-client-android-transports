@@ -146,8 +146,6 @@ class SmallWebRTCTransport internal constructor(
                 )
             }
 
-            enableMic(transportContext.options.enableMic)
-
             withPromise(thread) { promise ->
 
                 MainScope().launch {
