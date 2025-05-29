@@ -96,12 +96,6 @@ class SmallWebRTCTransport internal constructor(
                 )
             }
 
-
-            transportContext.callbacks.onInputsUpdated(
-                camera = false,
-                mic = transportContext.options.enableMic
-            )
-
             setState(TransportState.Connecting)
 
             try {
