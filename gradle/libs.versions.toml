@@ -10,7 +10,7 @@ dokka = "1.9.20"
 androidxTest = "1.6.1"
 ktor = "2.3.5"
 okhttp = "4.12.0"
-pipecatClient = "0.3.3"
+pipecatClient = "0.3.4"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }

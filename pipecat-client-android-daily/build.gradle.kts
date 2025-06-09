@@ -64,7 +64,7 @@ publishing {
         register<MavenPublication>("release") {
             groupId = "ai.pipecat"
             artifactId = "daily-transport"
-            version = "0.3.6"
+            version = "0.3.7"
 
             pom {
                 name.set("Pipecat Client Daily Transport")
