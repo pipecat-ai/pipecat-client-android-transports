@@ -1,5 +1,7 @@
 package ai.pipecat.client.gemini_live_websocket
 
+import ai.pipecat.client.helper.LLMFunctionCall
+import ai.pipecat.client.helper.LLMFunctionCallResult
 import ai.pipecat.client.result.Future
 import ai.pipecat.client.result.RTVIError
 import ai.pipecat.client.result.resolvedPromiseErr
@@ -52,7 +54,7 @@ class GeminiLiveWebsocketTransport(
 ) : Transport() {
 
     companion object {
-        private const val TAG = "DailyTransport"
+        private const val TAG = "GeminiTransport"
 
         private const val SERVICE_LLM = "llm"
         private const val OPTION_API_KEY = "api_key"
@@ -212,6 +214,47 @@ class GeminiLiveWebsocketTransport(
                                         )
                                     }
                                 }
+
+                                override fun onFunctionCall(
+                                    id: String,
+                                    name: String,
+                                    args: Value.Array
+                                ) {
+                                    val data = LLMFunctionCall(
+                                        functionName = name,
+                                        toolCallId = id,
+                                        args = args
+                                    )
+
+                                    transportContext.onMessage(
+                                        MsgServerToClient(
+                                            id = null,
+                                            label = "rtvi-ai",
+                                            type = "llm-function-call",
+                                            data = JSON.encodeToJsonElement(data)
+                                        )
+                                    )
+                                }
+
+                                override fun onUserTalking(isTalking: Boolean) {
+                                    thread.runOnThread {
+                                        transportContext.callbacks.apply {
+                                            if (isTalking) {
+                                                onUserStartedSpeaking()
+                                            } else {
+                                                onUserStoppedSpeaking()
+                                            }
+                                        }
+                                    }
+                                }
+
+                                override fun onUserAudioLevel(level: Float) {
+                                    thread.runOnThread {
+                                        transportContext.callbacks.onUserAudioLevel(
+                                            level
+                                        )
+                                    }
+                                }
                             }
                         )
                     }
@@ -271,6 +314,19 @@ class GeminiLiveWebsocketTransport(
                 } catch (e: Exception) {
                     return resolvedPromiseErr(thread, RTVIError.ExceptionThrown(e))
                 }
+            }
+            "llm-function-call-result" -> {
+                val messageData = message.data ?: return resolvedPromiseErr(thread, RTVIError.OtherError("Function call result must not be null"))
+
+                val data: LLMFunctionCallResult = JSON.decodeFromJsonElement(messageData)
+
+                client?.sendFunctionResponse(
+                    id = data.toolCallId,
+                    name = data.functionName,
+                    response = data.result as Value.Object
+                )
+
+                return resolvedPromiseOk(thread, Unit)
             }
 
             else -> {

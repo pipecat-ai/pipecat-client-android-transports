@@ -1,5 +1,6 @@
 package ai.pipecat.client.gemini_live_websocket
 
+import ai.pipecat.client.gemini_live_websocket.GeminiClient.Companion.calculateAudioLevel
 import android.media.AudioFormat
 import android.media.AudioRecord
 import android.media.MediaRecorder.AudioSource
@@ -15,6 +16,7 @@ private const val BUFFER_MS = 100
 internal class AudioIn @RequiresPermission(android.Manifest.permission.RECORD_AUDIO) constructor(
     sampleRateHz: Int,
     onAudioCaptured: (ByteArray) -> Unit,
+    onAudioLevelUpdate: (Float) -> Unit,
     onError: (Throwable) -> Unit,
     onStopped: () -> Unit,
     initialMicEnabled: Boolean
@@ -68,6 +70,7 @@ internal class AudioIn @RequiresPermission(android.Manifest.permission.RECORD_AU
                                 throw RuntimeException("record.read returned $readResult")
                             }
 
+                            onAudioLevelUpdate(calculateAudioLevel(buf))
                             onAudioCaptured(buf.copyOf(readResult))
                         }
                     } finally {
