@@ -1,7 +1,7 @@
 package ai.pipecat.client.daily
 
+import ai.pipecat.client.result.PipecatError
 import ai.pipecat.client.result.Promise
-import ai.pipecat.client.result.RTVIError
 import ai.pipecat.client.types.MediaDeviceId
 import ai.pipecat.client.types.MediaDeviceInfo
 import ai.pipecat.client.types.MediaTrackId
@@ -17,12 +17,12 @@ import kotlinx.serialization.json.contentOrNull
 
 internal val JSON_INSTANCE = Json { ignoreUnknownKeys = true }
 
-internal fun RequestError?.toRTVIError() =
-    RTVIError.OtherError("Error from Daily client: ${this?.msg}")
+internal fun RequestError?.toPipecatError() =
+    PipecatError.OtherError("Error from Daily client: ${this?.msg}")
 
-internal fun Promise<Unit, RTVIError>.resolveWithDailyResult(result: RequestResult) {
+internal fun Promise<Unit, PipecatError>.resolveWithDailyResult(result: RequestResult) {
     if (result.isError) {
-        resolveErr(result.error.toRTVIError())
+        resolveErr(result.error.toPipecatError())
     } else {
         resolveOk(Unit)
     }

@@ -13,13 +13,13 @@ The following RTVI transports are available in this repository:
 Add the following dependency to your `build.gradle` file:
 
 ```
-implementation "ai.pipecat:daily-transport:0.3.7"
+implementation "ai.pipecat:daily-transport:1.0.0"
 ```
 
 Instantiate from your code:
 
 ```kotlin
-val callbacks = object : RTVIEventCallbacks() {
+val callbacks = object : PipecatEventCallbacks() {
 
     override fun onBackendError(message: String) {
         Log.e(TAG, "Error from backend: $message")
@@ -28,17 +28,20 @@ val callbacks = object : RTVIEventCallbacks() {
     // ...
 }
 
-val transport = DailyTransport.Factory(context)
+val options = PipecatClientOptions(
+    transport = DailyTransport(context),
+    callbacks = callbacks
+)
 
-val client = RTVIClient(transport, callbacks, options)
+val client = PipecatClient(options)
 
-client.start().withCallback {
+client.startBotAndConnect(startBotParams).withCallback {
     // ...
 }
 ```
 
-`client.start()` (and other APIs) return a `Future`, which can give callbacks, or be awaited
-using Kotlin Coroutines (`client.start().await()`).
+Many `PipecatClient` APIs return a `Future`, which can give callbacks, or be awaited
+using Kotlin Coroutines (`client.startBotAndConnect().await()`).
 
 
 ## Gemini Live Websocket Transport
