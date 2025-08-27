@@ -1,16 +1,14 @@
 package ai.pipecat.client.daily
 
 import ai.pipecat.client.result.Future
-import ai.pipecat.client.result.RTVIError
+import ai.pipecat.client.result.PipecatError
 import ai.pipecat.client.result.resolvedPromiseErr
 import ai.pipecat.client.result.resolvedPromiseOk
 import ai.pipecat.client.result.withPromise
-import ai.pipecat.client.transport.AuthBundle
 import ai.pipecat.client.transport.MsgClientToServer
 import ai.pipecat.client.transport.MsgServerToClient
 import ai.pipecat.client.transport.Transport
 import ai.pipecat.client.transport.TransportContext
-import ai.pipecat.client.transport.TransportFactory
 import ai.pipecat.client.types.MediaDeviceId
 import ai.pipecat.client.types.MediaDeviceInfo
 import ai.pipecat.client.types.Participant
@@ -18,6 +16,8 @@ import ai.pipecat.client.types.ParticipantId
 import ai.pipecat.client.types.ParticipantTracks
 import ai.pipecat.client.types.Tracks
 import ai.pipecat.client.types.TransportState
+import ai.pipecat.client.types.Value
+import ai.pipecat.client.utils.ThreadRef
 import android.content.Context
 import android.util.Log
 import co.daily.CallClient
@@ -36,9 +36,9 @@ import co.daily.settings.StateBoolean
 import co.daily.settings.VideoMediaTrackSettingsUpdate
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.decodeFromJsonElement
+import kotlinx.serialization.json.encodeToJsonElement
 
 class DailyTransport(
-    private val transportContext: TransportContext,
     androidContext: Context
 ) : Transport() {
 
@@ -46,13 +46,8 @@ class DailyTransport(
         private const val TAG = "DailyTransport"
     }
 
-    class Factory(private val androidContext: Context) : TransportFactory {
-        override fun createTransport(context: TransportContext): Transport {
-            return DailyTransport(context, androidContext)
-        }
-    }
-
-    private val thread = transportContext.thread
+    private lateinit var transportContext: TransportContext
+    private lateinit var thread: ThreadRef
 
     private val appContext = androidContext.applicationContext
     private var state = TransportState.Disconnected
@@ -176,7 +171,7 @@ class DailyTransport(
                     val metrics =
                         msgJson.tryGetObject("metrics") ?: throw Exception("Missing metrics field")
 
-                    transportContext.callbacks.onPipecatMetrics(
+                    transportContext.callbacks.onMetrics(
                         JSON_INSTANCE.decodeFromJsonElement(metrics)
                     )
 
@@ -197,7 +192,18 @@ class DailyTransport(
         }
     }
 
-    override fun initDevices(): Future<Unit, RTVIError> = withPromise(thread) { promise ->
+    /**
+     * Returns the raw Daily CallClient instance for custom operations.
+     */
+    val callClient: CallClient?
+        get() = call
+
+    override fun initialize(ctx: TransportContext) {
+        transportContext = ctx
+        thread = ctx.thread
+    }
+
+    override fun initDevices(): Future<Unit, PipecatError> = withPromise(thread) { promise ->
 
         thread.runOnThread {
 
@@ -232,29 +238,31 @@ class DailyTransport(
 
             } catch (e: Exception) {
                 Log.e(TAG, "Exception in initDevices", e)
-                promise.resolveErr(RTVIError.ExceptionThrown(e))
+                promise.resolveErr(PipecatError.ExceptionThrown(e))
             }
         }
     }
 
-    override fun connect(authBundle: AuthBundle?): Future<Unit, RTVIError> =
+    override fun connect(transportParams: Value): Future<Unit, PipecatError> =
         thread.runOnThreadReturningFuture {
 
-            if (authBundle == null) {
-                return@runOnThreadReturningFuture resolvedPromiseErr(
-                    thread,
-                    RTVIError.OtherError("Auth request cannot be skipped -- please ensure baseUrl and a connect endpoint are set")
-                )
-            }
-
-            Log.i(TAG, "connect(${authBundle.data})")
+            Log.i(TAG, "connect($transportParams)")
 
             val dailyBundle = try {
-                JSON_INSTANCE.decodeFromString<DailyTransportAuthBundle>(authBundle.data)
+                JSON_INSTANCE.decodeFromJsonElement<DailyTransportAuthBundle>(
+                    JSON_INSTANCE.encodeToJsonElement(transportParams)
+                )
             } catch (e: Exception) {
                 return@runOnThreadReturningFuture resolvedPromiseErr(
                     thread,
-                    RTVIError.ExceptionThrown(e)
+                    PipecatError.ExceptionThrown(e)
+                )
+            }
+
+            if (dailyBundle.dailyRoom == null) {
+                return@runOnThreadReturningFuture resolvedPromiseErr(
+                    thread,
+                    PipecatError.OtherError("dailyRoom not set in transportParams")
                 )
             }
 
@@ -270,12 +278,12 @@ class DailyTransport(
                             enableCam(transportContext.options.enableCam).withErrorCallback(promise::resolveErr)
 
                             callClient.join(
-                                url = dailyBundle.roomUrl,
-                                meetingToken = dailyBundle.token?.let { MeetingToken(it) },
+                                url = dailyBundle.actualRoom!!,
+                                meetingToken = dailyBundle.actualToken?.let { MeetingToken(it) },
                             ) {
                                 if (it.isError) {
                                     setState(TransportState.Error)
-                                    promise.resolveErr(it.error.toRTVIError())
+                                    promise.resolveErr(it.error.toPipecatError())
                                     return@join
                                 }
 
@@ -295,7 +303,7 @@ class DailyTransport(
                 }
         }
 
-    override fun disconnect(): Future<Unit, RTVIError> = thread.runOnThreadReturningFuture {
+    override fun disconnect(): Future<Unit, PipecatError> = thread.runOnThreadReturningFuture {
         withCall { callClient ->
             withPromise(thread) { promise ->
                 callClient.leave(promise::resolveWithDailyResult)
@@ -305,7 +313,7 @@ class DailyTransport(
 
     override fun sendMessage(
         message: MsgClientToServer,
-    ): Future<Unit, RTVIError> = thread.runOnThreadReturningFuture {
+    ): Future<Unit, PipecatError> = thread.runOnThreadReturningFuture {
         withCall { callClient ->
             withPromise(thread) { promise ->
                 callClient.sendAppMessage(
@@ -328,10 +336,10 @@ class DailyTransport(
         transportContext.callbacks.onTransportStateChanged(state)
     }
 
-    override fun getAllCams(): Future<List<MediaDeviceInfo>, RTVIError> =
+    override fun getAllCams(): Future<List<MediaDeviceInfo>, PipecatError> =
         resolvedPromiseOk(thread, getAllCamsInternal())
 
-    override fun getAllMics(): Future<List<MediaDeviceInfo>, RTVIError> =
+    override fun getAllMics(): Future<List<MediaDeviceInfo>, PipecatError> =
         resolvedPromiseOk(thread, getAllMicsInternal())
 
     private fun getAllCamsInternal() =
@@ -340,7 +348,7 @@ class DailyTransport(
     private fun getAllMicsInternal() =
         call?.availableDevices()?.audio?.map { it.toRtvi() } ?: emptyList()
 
-    override fun updateMic(micId: MediaDeviceId): Future<Unit, RTVIError> =
+    override fun updateMic(micId: MediaDeviceId): Future<Unit, PipecatError> =
         thread.runOnThreadReturningFuture {
             withCall { callClient ->
                 withPromise(thread) { promise ->
@@ -349,7 +357,7 @@ class DailyTransport(
             }
         }
 
-    override fun updateCam(camId: MediaDeviceId): Future<Unit, RTVIError> =
+    override fun updateCam(camId: MediaDeviceId): Future<Unit, PipecatError> =
         thread.runOnThreadReturningFuture {
             withCall { callClient ->
                 withPromise(thread) { promise ->
@@ -376,7 +384,7 @@ class DailyTransport(
 
     override fun isMicEnabled() = call?.inputs()?.microphone?.isEnabled ?: false
 
-    override fun enableMic(enable: Boolean): Future<Unit, RTVIError> =
+    override fun enableMic(enable: Boolean): Future<Unit, PipecatError> =
         thread.runOnThreadReturningFuture {
             withCall { callClient ->
                 withPromise(thread) { promise ->
@@ -391,9 +399,7 @@ class DailyTransport(
             }
         }
 
-    override fun expiry() = thread.assertCurrent { expiry }
-
-    override fun enableCam(enable: Boolean): Future<Unit, RTVIError> =
+    override fun enableCam(enable: Boolean): Future<Unit, PipecatError> =
         thread.runOnThreadReturningFuture {
             withCall { callClient ->
                 withPromise(thread) { promise ->
@@ -438,14 +444,14 @@ class DailyTransport(
         call = null
     }
 
-    private fun <V> withCall(action: (CallClient) -> Future<V, RTVIError>): Future<V, RTVIError> {
+    private fun <V> withCall(action: (CallClient) -> Future<V, PipecatError>): Future<V, PipecatError> {
 
         thread.assertCurrent()
 
         val currentClient = call
 
         return if (currentClient == null) {
-            resolvedPromiseErr(thread, RTVIError.TransportNotInitialized)
+            resolvedPromiseErr(thread, PipecatError.TransportNotInitialized)
         } else {
             return action(currentClient)
         }
