@@ -1,7 +1,7 @@
 package ai.pipecat.client.daily
 
 import ai.pipecat.client.result.Future
-import ai.pipecat.client.result.PipecatError
+import ai.pipecat.client.result.RTVIError
 import ai.pipecat.client.result.resolvedPromiseErr
 import ai.pipecat.client.result.resolvedPromiseOk
 import ai.pipecat.client.result.withPromise
@@ -28,7 +28,7 @@ import co.daily.model.MeetingToken
 import co.daily.model.ParticipantLeftReason
 import co.daily.model.Recipient
 import co.daily.settings.CameraInputSettingsUpdate
-import co.daily.settings.Device
+import co.daily.settings.FacingModeUpdate
 import co.daily.settings.InputSettings
 import co.daily.settings.InputSettingsUpdate
 import co.daily.settings.MicrophoneInputSettingsUpdate
@@ -108,9 +108,10 @@ class DailyTransport(
 
                     clientReady = true
                     sendMessage(
-                        MsgClientToServer(
-                            type = "client-ready",
-                            data = JsonObject(emptyMap())
+                        MsgClientToServer.ClientReady(
+                            rtviVersion = transportContext.protocolVersion,
+                            library = "Pipecat Android Client",
+                            libraryVersion = DAILY_TRANSPORT_VERSION
                         )
                     )
                 }
@@ -192,6 +193,16 @@ class DailyTransport(
         }
     }
 
+    object Cameras {
+        val Front = MediaDeviceId("Front")
+        val Back = MediaDeviceId("Back")
+
+        internal object Info {
+            val Front = MediaDeviceInfo(id = Cameras.Front, name = Cameras.Front.id)
+            val Back = MediaDeviceInfo(id = Cameras.Back, name = Cameras.Back.id)
+        }
+    }
+
     /**
      * Returns the raw Daily CallClient instance for custom operations.
      */
@@ -203,7 +214,7 @@ class DailyTransport(
         thread = ctx.thread
     }
 
-    override fun initDevices(): Future<Unit, PipecatError> = withPromise(thread) { promise ->
+    override fun initDevices(): Future<Unit, RTVIError> = withPromise(thread) { promise ->
 
         thread.runOnThread {
 
@@ -238,12 +249,12 @@ class DailyTransport(
 
             } catch (e: Exception) {
                 Log.e(TAG, "Exception in initDevices", e)
-                promise.resolveErr(PipecatError.ExceptionThrown(e))
+                promise.resolveErr(RTVIError.ExceptionThrown(e))
             }
         }
     }
 
-    override fun connect(transportParams: Value): Future<Unit, PipecatError> =
+    override fun connect(transportParams: Value): Future<Unit, RTVIError> =
         thread.runOnThreadReturningFuture {
 
             Log.i(TAG, "connect($transportParams)")
@@ -255,14 +266,14 @@ class DailyTransport(
             } catch (e: Exception) {
                 return@runOnThreadReturningFuture resolvedPromiseErr(
                     thread,
-                    PipecatError.ExceptionThrown(e)
+                    RTVIError.ExceptionThrown(e)
                 )
             }
 
             if (dailyBundle.dailyRoom == null) {
                 return@runOnThreadReturningFuture resolvedPromiseErr(
                     thread,
-                    PipecatError.OtherError("dailyRoom not set in transportParams")
+                    RTVIError.OtherError("dailyRoom not set in transportParams")
                 )
             }
 
@@ -283,7 +294,7 @@ class DailyTransport(
                             ) {
                                 if (it.isError) {
                                     setState(TransportState.Error)
-                                    promise.resolveErr(it.error.toPipecatError())
+                                    promise.resolveErr(it.error.toRTVIError())
                                     return@join
                                 }
 
@@ -303,7 +314,7 @@ class DailyTransport(
                 }
         }
 
-    override fun disconnect(): Future<Unit, PipecatError> = thread.runOnThreadReturningFuture {
+    override fun disconnect(): Future<Unit, RTVIError> = thread.runOnThreadReturningFuture {
         withCall { callClient ->
             withPromise(thread) { promise ->
                 callClient.leave(promise::resolveWithDailyResult)
@@ -313,7 +324,7 @@ class DailyTransport(
 
     override fun sendMessage(
         message: MsgClientToServer,
-    ): Future<Unit, PipecatError> = thread.runOnThreadReturningFuture {
+    ): Future<Unit, RTVIError> = thread.runOnThreadReturningFuture {
         withCall { callClient ->
             withPromise(thread) { promise ->
                 callClient.sendAppMessage(
@@ -336,19 +347,19 @@ class DailyTransport(
         transportContext.callbacks.onTransportStateChanged(state)
     }
 
-    override fun getAllCams(): Future<List<MediaDeviceInfo>, PipecatError> =
+    override fun getAllCams(): Future<List<MediaDeviceInfo>, RTVIError> =
         resolvedPromiseOk(thread, getAllCamsInternal())
 
-    override fun getAllMics(): Future<List<MediaDeviceInfo>, PipecatError> =
+    override fun getAllMics(): Future<List<MediaDeviceInfo>, RTVIError> =
         resolvedPromiseOk(thread, getAllMicsInternal())
 
-    private fun getAllCamsInternal() =
-        call?.availableDevices()?.camera?.map { it.toRtvi() } ?: emptyList()
+    // TODO test this
+    private fun getAllCamsInternal() = listOf(Cameras.Info.Back, Cameras.Info.Front)
 
     private fun getAllMicsInternal() =
         call?.availableDevices()?.audio?.map { it.toRtvi() } ?: emptyList()
 
-    override fun updateMic(micId: MediaDeviceId): Future<Unit, PipecatError> =
+    override fun updateMic(micId: MediaDeviceId): Future<Unit, RTVIError> =
         thread.runOnThreadReturningFuture {
             withCall { callClient ->
                 withPromise(thread) { promise ->
@@ -357,7 +368,7 @@ class DailyTransport(
             }
         }
 
-    override fun updateCam(camId: MediaDeviceId): Future<Unit, PipecatError> =
+    override fun updateCam(camId: MediaDeviceId): Future<Unit, RTVIError> =
         thread.runOnThreadReturningFuture {
             withCall { callClient ->
                 withPromise(thread) { promise ->
@@ -365,7 +376,10 @@ class DailyTransport(
                         InputSettingsUpdate(
                             camera = CameraInputSettingsUpdate(
                                 settings = VideoMediaTrackSettingsUpdate(
-                                    deviceId = Device(camId.id)
+                                    facingMode = when (camId) {
+                                        Cameras.Front -> FacingModeUpdate.user
+                                        else -> FacingModeUpdate.environment
+                                    }
                                 )
                             )
                         ), promise::resolveWithDailyResult
@@ -384,7 +398,7 @@ class DailyTransport(
 
     override fun isMicEnabled() = call?.inputs()?.microphone?.isEnabled ?: false
 
-    override fun enableMic(enable: Boolean): Future<Unit, PipecatError> =
+    override fun enableMic(enable: Boolean): Future<Unit, RTVIError> =
         thread.runOnThreadReturningFuture {
             withCall { callClient ->
                 withPromise(thread) { promise ->
@@ -399,7 +413,7 @@ class DailyTransport(
             }
         }
 
-    override fun enableCam(enable: Boolean): Future<Unit, PipecatError> =
+    override fun enableCam(enable: Boolean): Future<Unit, RTVIError> =
         thread.runOnThreadReturningFuture {
             withCall { callClient ->
                 withPromise(thread) { promise ->
@@ -444,14 +458,14 @@ class DailyTransport(
         call = null
     }
 
-    private fun <V> withCall(action: (CallClient) -> Future<V, PipecatError>): Future<V, PipecatError> {
+    private fun <V> withCall(action: (CallClient) -> Future<V, RTVIError>): Future<V, RTVIError> {
 
         thread.assertCurrent()
 
         val currentClient = call
 
         return if (currentClient == null) {
-            resolvedPromiseErr(thread, PipecatError.TransportNotInitialized)
+            resolvedPromiseErr(thread, RTVIError.TransportNotInitialized)
         } else {
             return action(currentClient)
         }
