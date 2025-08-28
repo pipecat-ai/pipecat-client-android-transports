@@ -19,6 +19,7 @@ import ai.pipecat.client.types.TransportState
 import ai.pipecat.client.types.Value
 import ai.pipecat.client.utils.ThreadRef
 import android.content.Context
+import android.os.Build
 import android.util.Log
 import co.daily.CallClient
 import co.daily.CallClientListener
@@ -28,6 +29,7 @@ import co.daily.model.MeetingToken
 import co.daily.model.ParticipantLeftReason
 import co.daily.model.Recipient
 import co.daily.settings.CameraInputSettingsUpdate
+import co.daily.settings.FacingMode
 import co.daily.settings.FacingModeUpdate
 import co.daily.settings.InputSettings
 import co.daily.settings.InputSettingsUpdate
@@ -111,7 +113,9 @@ class DailyTransport(
                         MsgClientToServer.ClientReady(
                             rtviVersion = transportContext.protocolVersion,
                             library = "Pipecat Android Client",
-                            libraryVersion = DAILY_TRANSPORT_VERSION
+                            libraryVersion = DAILY_TRANSPORT_VERSION,
+                            platform = "Android",
+                            platformVersion = Build.VERSION.RELEASE
                         )
                     )
                 }
@@ -353,7 +357,6 @@ class DailyTransport(
     override fun getAllMics(): Future<List<MediaDeviceInfo>, RTVIError> =
         resolvedPromiseOk(thread, getAllMicsInternal())
 
-    // TODO test this
     private fun getAllCamsInternal() = listOf(Cameras.Info.Back, Cameras.Info.Front)
 
     private fun getAllMicsInternal() =
@@ -392,7 +395,12 @@ class DailyTransport(
         call?.inputs()?.microphone?.settings?.deviceId?.let { id -> getAllMicsInternal().firstOrNull { it.id.id == id } }
 
     override fun selectedCam() =
-        call?.inputs()?.camera?.settings?.deviceId?.let { id -> getAllCamsInternal().firstOrNull { it.id.id == id } }
+        call?.inputs()?.camera?.settings?.facingMode?.let { facingMode ->
+            when (facingMode) {
+                FacingMode.user -> Cameras.Info.Front
+                else -> Cameras.Info.Back
+            }
+        }
 
     override fun isCamEnabled() = call?.inputs()?.camera?.isEnabled ?: false
 
