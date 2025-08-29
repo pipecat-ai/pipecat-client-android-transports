@@ -52,7 +52,7 @@ class GeminiLiveWebsocketTransport(
 ) : Transport() {
 
     companion object {
-        private const val TAG = "DailyTransport"
+        private const val TAG = "GeminiLiveWebsocketTransport"
 
         private const val SERVICE_LLM = "llm"
         private const val OPTION_API_KEY = "api_key"

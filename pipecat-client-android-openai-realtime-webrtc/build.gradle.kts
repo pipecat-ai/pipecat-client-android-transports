@@ -52,7 +52,8 @@ dependencies {
     implementation(libs.androidx.core.ktx)
     implementation(libs.kotlinx.serialization.json)
 
-    api(libs.pipecat.client)
+    // Temporary override until transport is updated to 1.0.0
+    api("ai.pipecat:client:0.3.4")
 
     androidTestImplementation(libs.androidx.runner)
     androidTestImplementation(libs.androidx.rules)
