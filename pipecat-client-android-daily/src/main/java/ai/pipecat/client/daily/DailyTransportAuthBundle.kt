@@ -14,6 +14,6 @@ internal data class DailyTransportAuthBundle(
     val dailyRoom: String? = null,
     val dailyToken: String? = null
 ) {
-    val actualRoom = dailyRoom ?: roomUrl
-    val actualToken = dailyToken ?: token
+    fun actualRoom() = dailyRoom ?: roomUrl
+    fun actualToken() = dailyToken ?: token
 }

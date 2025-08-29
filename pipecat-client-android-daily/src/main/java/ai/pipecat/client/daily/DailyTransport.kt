@@ -16,7 +16,6 @@ import ai.pipecat.client.types.ParticipantId
 import ai.pipecat.client.types.ParticipantTracks
 import ai.pipecat.client.types.Tracks
 import ai.pipecat.client.types.TransportState
-import ai.pipecat.client.types.Value
 import ai.pipecat.client.utils.ThreadRef
 import android.content.Context
 import android.os.Build
@@ -38,11 +37,10 @@ import co.daily.settings.StateBoolean
 import co.daily.settings.VideoMediaTrackSettingsUpdate
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.decodeFromJsonElement
-import kotlinx.serialization.json.encodeToJsonElement
 
 class DailyTransport(
     androidContext: Context
-) : Transport() {
+) : Transport<DailyTransportConnectParams>() {
 
     companion object {
         private const val TAG = "DailyTransport"
@@ -218,6 +216,15 @@ class DailyTransport(
         thread = ctx.thread
     }
 
+    override fun deserializeConnectParams(json: String): DailyTransportConnectParams {
+        val authBundle: DailyTransportAuthBundle = JSON_INSTANCE.decodeFromString(json)
+
+        val room = authBundle.actualRoom() ?: throw Exception("dailyRoom not set")
+        val token = authBundle.actualToken()?.let { MeetingToken(it) }
+
+        return DailyTransportConnectParams(dailyRoom = room, dailyToken = token)
+    }
+
     override fun initDevices(): Future<Unit, RTVIError> = withPromise(thread) { promise ->
 
         thread.runOnThread {
@@ -258,28 +265,10 @@ class DailyTransport(
         }
     }
 
-    override fun connect(transportParams: Value): Future<Unit, RTVIError> =
+    override fun connect(transportParams: DailyTransportConnectParams): Future<Unit, RTVIError> =
         thread.runOnThreadReturningFuture {
 
             Log.i(TAG, "connect($transportParams)")
-
-            val dailyBundle = try {
-                JSON_INSTANCE.decodeFromJsonElement<DailyTransportAuthBundle>(
-                    JSON_INSTANCE.encodeToJsonElement(transportParams)
-                )
-            } catch (e: Exception) {
-                return@runOnThreadReturningFuture resolvedPromiseErr(
-                    thread,
-                    RTVIError.ExceptionThrown(e)
-                )
-            }
-
-            if (dailyBundle.dailyRoom == null) {
-                return@runOnThreadReturningFuture resolvedPromiseErr(
-                    thread,
-                    RTVIError.OtherError("dailyRoom not set in transportParams")
-                )
-            }
 
             setState(TransportState.Connecting)
 
@@ -293,8 +282,8 @@ class DailyTransport(
                             enableCam(transportContext.options.enableCam).withErrorCallback(promise::resolveErr)
 
                             callClient.join(
-                                url = dailyBundle.actualRoom!!,
-                                meetingToken = dailyBundle.actualToken?.let { MeetingToken(it) },
+                                url = transportParams.dailyRoom,
+                                meetingToken = transportParams.dailyToken,
                             ) {
                                 if (it.isError) {
                                     setState(TransportState.Error)
