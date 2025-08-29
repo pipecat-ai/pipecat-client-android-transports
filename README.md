@@ -28,12 +28,9 @@ val callbacks = object : PipecatEventCallbacks() {
     // ...
 }
 
-val options = PipecatClientOptions(
-    transport = DailyTransport(context),
-    callbacks = callbacks
-)
+val options = PipecatClientOptions(callbacks = callbacks)
 
-val client = PipecatClient(options)
+val client: PipecatClientDaily = PipecatClient(DailyTransport(context), options)
 
 client.startBotAndConnect(startBotParams).withCallback {
     // ...
