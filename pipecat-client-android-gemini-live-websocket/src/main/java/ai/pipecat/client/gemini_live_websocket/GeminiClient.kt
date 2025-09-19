@@ -1,5 +1,6 @@
 package ai.pipecat.client.gemini_live_websocket
 
+import ai.pipecat.client.gemini_live_websocket.RealtimeInputRequest.RealtimeInput
 import ai.pipecat.client.types.Value
 import android.annotation.SuppressLint
 import android.util.Base64
@@ -8,10 +9,13 @@ import androidx.annotation.RequiresPermission
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.encodeToJsonElement
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.concurrent.thread
+import kotlin.math.sqrt
 
 private const val API_URL =
     "https://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContent"
@@ -57,9 +61,37 @@ private data class RealtimeInputRequest(
 }
 
 @Serializable
+private data class ToolResponseRequest(
+    val toolResponse: ToolResponse
+) {
+    @Serializable
+    data class ToolResponse(
+        val functionResponses: List<FunctionResponses>? = null
+    ) {
+        @Serializable
+        data class FunctionResponses(
+            val id: String? = null,
+            val name: String,
+            val response: JsonElement,
+            val willContinue: Boolean? = null,
+            val scheduling: Scheduling? = null
+        ) {
+            @Serializable
+            enum class Scheduling {
+                SCHEDULING_UNSPECIFIED,
+                SILENT,
+                WHEN_IDLE,
+                INTERRUPT
+            }
+        }
+    }
+}
+
+@Serializable
 private data class IncomingMessage(
     val setupComplete: SetupComplete? = null,
-    val serverContent: ServerContent? = null
+    val serverContent: ServerContent? = null,
+    val toolCall: ToolCall? = null,
 ) {
     @Serializable
     data class SetupComplete(
@@ -75,6 +107,19 @@ private data class IncomingMessage(
         @Serializable
         data class ModelTurn(
             val parts: List<TurnPart>
+        )
+    }
+
+    @Serializable
+    data class ToolCall(
+        val functionCalls: List<FunctionCall>
+    ) {
+        @Serializable
+        data class FunctionCall(
+            val name: String,
+            @SerialName("args")
+            val arguments: Map<String, String>,
+            val id: String
         )
     }
 }
@@ -105,6 +150,7 @@ private data class AppendedMessage(
 
 internal class GeminiClient private constructor(
     private val onSendUserMessage: (AppendedMessage) -> Unit,
+    private val onSendFunctionResponse: (String, String, Value.Object) -> Unit,
     private val onClose: () -> Unit,
     private val setMicMuted: (Boolean) -> Unit,
     private val isMicMuted: () -> Boolean,
@@ -120,12 +166,16 @@ internal class GeminiClient private constructor(
         fun onConnected()
         fun onSessionEnded(reason: String, t: Throwable?)
         fun onBotTalking(isTalking: Boolean)
+        fun onUserTalking(isTalking: Boolean)
+        fun onUserAudioLevel(level: Float)
         fun onBotAudioLevel(level: Float)
+        fun onFunctionCall(id: String, name: String, args: Value.Array)
     }
 
     private sealed interface ClientThreadEvent {
         class SendAudioData(val buf: ByteArray) : ClientThreadEvent
         class SendUserMessage(val msg: AppendedMessage) : ClientThreadEvent
+        class SendFunctionResponse(val id: String, val name: String, val response: Value.Object) : ClientThreadEvent
         data object Stop : ClientThreadEvent
         data object WebsocketClosed : ClientThreadEvent
         class WebsocketFailed(val t: Throwable) : ClientThreadEvent
@@ -156,6 +206,7 @@ internal class GeminiClient private constructor(
                 val audioIn = AudioIn(
                     inputSampleRate,
                     onAudioCaptured = { audioInCallback.get()?.invoke(it) },
+                    onAudioLevelUpdate = listener::onUserAudioLevel,
                     onError = {},
                     onStopped = {},
                     initialMicEnabled = config.initialMicEnabled
@@ -166,6 +217,7 @@ internal class GeminiClient private constructor(
                 )
 
                 var isBotTalking = false
+                var isUserTalking = false
 
                 isMicMutedRef.set { audioIn.muted }
 
@@ -255,6 +307,25 @@ internal class GeminiClient private constructor(
                     )
                 }
 
+                fun doSendFunctionResponse(id: String, name: String, response: Value.Object) {
+                    ws.send(
+                        JSON.encodeToString(
+                            ToolResponseRequest.serializer(),
+                            ToolResponseRequest(
+                                toolResponse = ToolResponseRequest.ToolResponse(
+                                    functionResponses = listOf(
+                                        ToolResponseRequest.ToolResponse.FunctionResponses(
+                                            id = id,
+                                            name = name,
+                                            response = JSON.encodeToJsonElement(response)
+                                        )
+                                    )
+                                )
+                            )
+                        )
+                    )
+                }
+
                 fun stopAudio() {
                     audioIn.stop()
                     audioOut.interrupt()
@@ -269,7 +340,7 @@ internal class GeminiClient private constructor(
                                 JSON.encodeToString(
                                     RealtimeInputRequest.serializer(),
                                     RealtimeInputRequest(
-                                        RealtimeInputRequest.RealtimeInput(
+                                        RealtimeInput(
                                             listOf(
                                                 InlineData.ofPcm(
                                                     inputSampleRate,
@@ -284,6 +355,10 @@ internal class GeminiClient private constructor(
 
                         is ClientThreadEvent.SendUserMessage -> {
                             doSendUserMessage(event.msg)
+                        }
+
+                        is ClientThreadEvent.SendFunctionResponse -> {
+                            doSendFunctionResponse(event.id, event.name, event.response)
                         }
 
                         ClientThreadEvent.Stop -> {
@@ -333,6 +408,10 @@ internal class GeminiClient private constructor(
                                         isBotTalking = true
                                         listenerRef.get()?.onBotTalking(true)
                                     }
+                                    if (isUserTalking) {
+                                        isUserTalking = false
+                                        listenerRef.get()?.onUserTalking(false)
+                                    }
 
                                     data.serverContent.modelTurn.parts.forEach { part ->
 
@@ -356,6 +435,10 @@ internal class GeminiClient private constructor(
 
                                 if (data.serverContent.interrupted) {
                                     Log.i(TAG, "User interrupted model output")
+                                    isBotTalking = false
+                                    isUserTalking = true
+                                    listenerRef.get()?.onUserTalking(true)
+                                    listenerRef.get()?.onBotTalking(false)
                                     audioOut.interrupt()
                                 }
 
@@ -366,8 +449,21 @@ internal class GeminiClient private constructor(
                                         isBotTalking = false
                                         listenerRef.get()?.onBotTalking(false)
                                     }
-                                }
 
+                                    if (!isUserTalking) {
+                                        isUserTalking = true
+                                        listenerRef.get()?.onUserTalking(true)
+                                    }
+                                }
+                            } else if (data.toolCall != null) {
+                                data.toolCall.functionCalls.forEach { call ->
+                                    Log.i(TAG, "Function call: $call")
+                                    listenerRef.get()?.onFunctionCall(
+                                        id = call.id,
+                                        name = call.name,
+                                        args = Value.Array(call.arguments.values.toList().map { Value.Str(it) })
+                                    )
+                                }
                             } else {
                                 Log.e(
                                     TAG,
@@ -387,6 +483,9 @@ internal class GeminiClient private constructor(
                 onSendUserMessage = { text ->
                     postEvent(ClientThreadEvent.SendUserMessage(text))
                 },
+                onSendFunctionResponse = { id, name, response ->
+                    postEvent(ClientThreadEvent.SendFunctionResponse(id, name, response))
+                },
                 onClose = {
                     postEvent(ClientThreadEvent.Stop)
                 },
@@ -398,6 +497,22 @@ internal class GeminiClient private constructor(
                 }
             )
         }
+
+        fun calculateAudioLevel(pcmData: ByteArray): Float {
+            var sumSquares = 0.0
+            val numSamples = pcmData.size / 2
+
+            for (i in 0 until numSamples) {
+                val low = pcmData[i * 2].toInt() and 0xFF
+                val high = pcmData[i * 2 + 1].toInt() and 0xFF
+                val sample = ((high shl 8) or low).toShort()
+                val sampleValue = sample.toDouble()
+                sumSquares += sampleValue * sampleValue
+            }
+
+            val rms = sqrt(sumSquares / numSamples)
+            return (rms / 32768.0).toFloat().coerceIn(0.0f, 1.0f)
+        }
     }
 
     var micMuted: Boolean
@@ -408,6 +523,9 @@ internal class GeminiClient private constructor(
 
     fun sendUserMessage(role: String, content: String) =
         onSendUserMessage(AppendedMessage(role = role, content = content))
+
+    fun sendFunctionResponse(id: String, name: String, response: Value.Object) =
+        onSendFunctionResponse(id, name, response)
 
     fun close() = onClose()
 }
