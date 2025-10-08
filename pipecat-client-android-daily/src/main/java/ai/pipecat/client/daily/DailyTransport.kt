@@ -85,8 +85,9 @@ class DailyTransport(
         }
 
         override fun onParticipantJoined(participant: co.daily.model.Participant) {
-            updateParticipant(participant)
+            val rtviParticipant = updateParticipant(participant)
             updateBotUserAndTracks()
+            transportContext.callbacks.onParticipantJoined(rtviParticipant)
         }
 
         override fun onParticipantLeft(
@@ -94,6 +95,7 @@ class DailyTransport(
             reason: ParticipantLeftReason
         ) {
             participants.remove(participant.id.toRtvi())
+                ?.let(transportContext.callbacks::onParticipantLeft)
             updateBotUserAndTracks()
         }
 
@@ -121,7 +123,25 @@ class DailyTransport(
         }
 
         private fun updateBotUserAndTracks() {
-            botUser = participants.values.firstOrNull { !it.local }
+
+            // If the bot is no longer in the map, give the disconnected callback
+            botUser?.let{
+                if (!participants.containsKey(it.id)) {
+                    transportContext.callbacks.onBotDisconnected(it)
+                    botUser = null
+                }
+            }
+
+            // If there was previously no bot connected, check if it has connected now
+            if (botUser == null) {
+                this.botUser = participants.values.firstOrNull { !it.local }
+
+                this.botUser?.let {
+                    transportContext.callbacks.onBotConnected(it)
+                }
+            }
+
+            // Update tracks
             val newTracks = tracks()
 
             if (newTracks != tracks) {
@@ -130,8 +150,10 @@ class DailyTransport(
             }
         }
 
-        private fun updateParticipant(participant: co.daily.model.Participant) {
-            participants[participant.id.toRtvi()] = participant.toRtvi()
+        private fun updateParticipant(participant: co.daily.model.Participant): Participant {
+            return participant.toRtvi().apply {
+                participants[participant.id.toRtvi()] = this
+            }
         }
 
         override fun onCallStateUpdated(state: CallState) {
