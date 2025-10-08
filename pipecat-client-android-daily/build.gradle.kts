@@ -1,4 +1,4 @@
-val libraryVersion = "1.0.2"
+val libraryVersion = "1.0.3"
 
 plugins {
     alias(libs.plugins.android.library)
@@ -11,7 +11,7 @@ plugins {
 
 android {
     namespace = "ai.pipecat.client.daily"
-    compileSdk = 34
+    compileSdk = 35
 
     defaultConfig {
         minSdk = 24
