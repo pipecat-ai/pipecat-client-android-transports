@@ -13,7 +13,7 @@ The following RTVI transports are available in this repository:
 Add the following dependency to your `build.gradle` file:
 
 ```
-implementation "ai.pipecat:daily-transport:1.0.0"
+implementation "ai.pipecat:daily-transport:1.0.3"
 ```
 
 Instantiate from your code:
