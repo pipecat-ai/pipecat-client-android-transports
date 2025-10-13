@@ -332,7 +332,14 @@ class DailyTransport(
     override fun disconnect(): Future<Unit, RTVIError> = thread.runOnThreadReturningFuture {
         withCall { callClient ->
             withPromise(thread) { promise ->
-                callClient.leave(promise::resolveWithDailyResult)
+                callClient.leave {
+                    try {
+                        transportContext.onConnectionEnd()
+                        promise.resolveOk(Unit)
+                    } catch (e: Exception) {
+                        promise.resolveErr(RTVIError.ExceptionThrown(e))
+                    }
+                }
             }
         }
     }
