@@ -9,6 +9,7 @@ import ai.pipecat.client.transport.MsgClientToServer
 import ai.pipecat.client.transport.MsgServerToClient
 import ai.pipecat.client.transport.Transport
 import ai.pipecat.client.transport.TransportContext
+import ai.pipecat.client.types.APIRequest
 import ai.pipecat.client.types.MediaDeviceId
 import ai.pipecat.client.types.MediaDeviceInfo
 import ai.pipecat.client.types.Participant
@@ -238,7 +239,10 @@ class DailyTransport(
         thread = ctx.thread
     }
 
-    override fun deserializeConnectParams(json: String): DailyTransportConnectParams {
+    override fun deserializeConnectParams(
+        json: String,
+        startBotRequest: APIRequest
+    ): DailyTransportConnectParams {
         val authBundle: DailyTransportAuthBundle = JSON_INSTANCE.decodeFromString(json)
 
         val room = authBundle.actualRoom() ?: throw Exception("dailyRoom not set")

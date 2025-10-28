@@ -13,7 +13,7 @@ The following RTVI transports are available in this repository:
 Add the following dependency to your `build.gradle` file:
 
 ```
-implementation "ai.pipecat:daily-transport:1.0.3"
+implementation "ai.pipecat:daily-transport:1.1.0"
 ```
 
 Instantiate from your code:
@@ -32,7 +32,7 @@ val options = PipecatClientOptions(callbacks = callbacks)
 
 val client: PipecatClientDaily = PipecatClient(DailyTransport(context), options)
 
-client.startBotAndConnect(startBotParams).withCallback {
+client.startBotAndConnect(apiRequest).withCallback {
     // ...
 }
 ```
@@ -125,23 +125,26 @@ client.connect().withCallback {
 Add the following dependency to your `build.gradle` file:
 
 ```
-implementation "ai.pipecat:small-webrtc-transport:0.3.7"
+implementation "ai.pipecat:small-webrtc-transport:1.1.0"
 ```
 
 Instantiate from your code:
 
 ```kotlin
-val options = RTVIClientOptions(
-    params = RTVIClientParams(baseUrl = null),
-    enableMic = true,
-    enableCam = true
-)
+val callbacks = object : PipecatEventCallbacks() {
 
-val connectionUrl = "http://localhost:7860/api/offer"
+    override fun onBackendError(message: String) {
+        Log.e(TAG, "Error from backend: $message")
+    }
 
-val client = RTVIClient(SmallWebRTCTransport.Factory(context, connectionUrl), callbacks, options)
+    // ...
+}
 
-client.connect().withCallback {
+val options = PipecatClientOptions(callbacks = callbacks)
+
+val client: PipecatClientSmallWebRTC = PipecatClient(SmallWebRTCTransport(context), options)
+
+client.startBotAndConnect(apiRequest).withCallback {
     // ...
 }
 ```

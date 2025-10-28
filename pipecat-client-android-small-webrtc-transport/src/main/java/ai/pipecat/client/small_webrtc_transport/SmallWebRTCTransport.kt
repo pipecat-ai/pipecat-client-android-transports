@@ -5,17 +5,18 @@ import ai.pipecat.client.result.RTVIError
 import ai.pipecat.client.result.resolvedPromiseErr
 import ai.pipecat.client.result.resolvedPromiseOk
 import ai.pipecat.client.result.withPromise
-import ai.pipecat.client.transport.AuthBundle
 import ai.pipecat.client.transport.MsgClientToServer
 import ai.pipecat.client.transport.MsgServerToClient
 import ai.pipecat.client.transport.Transport
 import ai.pipecat.client.transport.TransportContext
-import ai.pipecat.client.transport.TransportFactory
+import ai.pipecat.client.types.APIRequest
 import ai.pipecat.client.types.MediaDeviceId
 import ai.pipecat.client.types.MediaDeviceInfo
 import ai.pipecat.client.types.Participant
 import ai.pipecat.client.types.ParticipantId
 import ai.pipecat.client.types.TransportState
+import ai.pipecat.client.types.Value
+import ai.pipecat.client.utils.ThreadRef
 import android.annotation.SuppressLint
 import android.content.Context
 import android.media.AudioManager
@@ -37,11 +38,9 @@ private val LOCAL_PARTICIPANT = Participant(
     local = true
 )
 
-class SmallWebRTCTransport internal constructor(
-    private val transportContext: TransportContext,
-    androidContext: Context,
-    private val serverUrl: String,
-) : Transport() {
+class SmallWebRTCTransport(
+    context: Context,
+) : Transport<SmallWebRTCTransportConnectParams>() {
 
     companion object {
         private const val TAG = "SmallWebRTCTransport"
@@ -64,30 +63,30 @@ class SmallWebRTCTransport internal constructor(
         val Rear = MediaDeviceInfo(id = MediaDeviceId("cam-rear"), name = "Rear Camera")
     }
 
-    class Factory(
-        private val androidContext: Context,
-        private val serverUrl: String
-    ) : TransportFactory {
-        override fun createTransport(context: TransportContext): Transport {
-            return SmallWebRTCTransport(context, androidContext, serverUrl)
-        }
-    }
+    private lateinit var transportContext: TransportContext
+    private lateinit var thread: ThreadRef
 
     private var state = TransportState.Disconnected
 
-    private val appContext = androidContext.applicationContext
-    private val thread = transportContext.thread
+    private val appContext = context.applicationContext
 
     private var client: WebRTCClient? = null
     private var selectedCam = CameraMode.Front
 
+    override fun initialize(ctx: TransportContext) {
+        transportContext = ctx
+        thread = ctx.thread
+    }
+
     override fun initDevices(): Future<Unit, RTVIError> = resolvedPromiseOk(thread, Unit)
 
     @SuppressLint("MissingPermission")
-    override fun connect(authBundle: AuthBundle?): Future<Unit, RTVIError> =
+    override fun connect(
+        transportParams: SmallWebRTCTransportConnectParams
+    ): Future<Unit, RTVIError> =
         thread.runOnThreadReturningFuture {
 
-            Log.i(TAG, "connect(${authBundle})")
+            Log.i(TAG, "connect(${transportParams})")
 
             if (client != null) {
                 return@runOnThreadReturningFuture resolvedPromiseErr(
@@ -114,7 +113,7 @@ class SmallWebRTCTransport internal constructor(
                                     disconnect()
                                 }
 
-                                "renegotiate" -> negotiate()
+                                "renegotiate" -> negotiate(transportParams)
                             }
 
                         } else {
@@ -139,7 +138,8 @@ class SmallWebRTCTransport internal constructor(
                     } else {
                         null
                     },
-                    initialMicEnabled = transportContext.options.enableMic
+                    initialMicEnabled = transportContext.options.enableMic,
+                    rtviProtocolVersion = transportContext.protocolVersion
                 )
             } catch (e: Exception) {
                 return@runOnThreadReturningFuture resolvedPromiseErr(
@@ -148,18 +148,17 @@ class SmallWebRTCTransport internal constructor(
                 )
             }
 
-            negotiate()
+            negotiate(transportParams)
         }
 
-    private fun negotiate() = withPromise<Unit, RTVIError>(thread) { promise ->
+    private fun negotiate(
+        connectParams: SmallWebRTCTransportConnectParams
+    ) = withPromise<Unit, RTVIError>(thread) { promise ->
 
         MainScope().launch {
 
             try {
-                client?.negotiateConnection(
-                    url = serverUrl,
-                    restartPc = false
-                )
+                client?.negotiateConnection(connectParams)
 
                 val cb = transportContext.callbacks
                 setState(TransportState.Connected)
@@ -174,6 +173,24 @@ class SmallWebRTCTransport internal constructor(
         }
     }
 
+    override fun deserializeConnectParams(
+        json: String,
+        startBotRequest: APIRequest
+    ): SmallWebRTCTransportConnectParams {
+        val startBotResult = JSON_INSTANCE.decodeFromString<SmallWebRTCStartBotResult>(json)
+
+        return SmallWebRTCTransportConnectParams(
+            webrtcRequestParams = APIRequest(
+                endpoint = startBotRequest.endpoint.replace(
+                    "/start",
+                    "/sessions/${startBotResult.sessionId}/api/offer"
+                ),
+                requestData = Value.Object(),
+                headers = startBotRequest.headers
+            )
+        )
+    }
+
     override fun disconnect(): Future<Unit, RTVIError> = thread.runOnThreadReturningFuture {
         withPromise(thread) { promise ->
 
@@ -185,6 +202,7 @@ class SmallWebRTCTransport internal constructor(
                     if (clientRef != null) {
                         clientRef.dispose()
                         setState(TransportState.Disconnected)
+                        transportContext.onConnectionEnd()
                         transportContext.callbacks.onDisconnected()
                     }
                     promise.resolveOk(Unit)
@@ -255,8 +273,6 @@ class SmallWebRTCTransport internal constructor(
 
     override fun enableMic(enable: Boolean): Future<Unit, RTVIError> = client?.setMicEnabled(enable)
         ?: resolvedPromiseErr(thread, RTVIError.TransportNotInitialized)
-
-    override fun expiry() = null
 
     override fun enableCam(enable: Boolean): Future<Unit, RTVIError> =
         client?.setCamMode(if (enable) selectedCam else null)

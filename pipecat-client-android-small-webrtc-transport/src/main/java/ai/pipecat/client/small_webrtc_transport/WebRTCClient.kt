@@ -12,11 +12,13 @@ import ai.pipecat.client.types.ParticipantTracks
 import ai.pipecat.client.types.Tracks
 import ai.pipecat.client.utils.ThreadRef
 import android.content.Context
+import android.os.Build
 import android.util.Log
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.android.Android
 import io.ktor.client.plugins.ResponseException
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
+import io.ktor.client.request.header
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.bodyAsText
@@ -93,6 +95,7 @@ internal class WebRTCClient(
     private val thread: ThreadRef,
     initialCamMode: CameraMode?,
     initialMicEnabled: Boolean,
+    rtviProtocolVersion: String,
 ) {
     private val peerConnectionFactory: PeerConnectionFactory
     private val peerConnection: PeerConnection
@@ -195,9 +198,12 @@ internal class WebRTCClient(
                     dataChannelReady.set(true)
                     sendDataMessage(
                         MsgClientToServer.serializer(),
-                        MsgClientToServer(
-                            type = "client-ready",
-                            data = JsonObject(emptyMap())
+                        MsgClientToServer.ClientReady(
+                            rtviVersion = rtviProtocolVersion,
+                            library = "Pipecat Android Client",
+                            libraryVersion = SMALL_WEBRTC_TRANSPORT_VERSION,
+                            platform = "Android",
+                            platformVersion = Build.VERSION.RELEASE
                         )
                     )
                 }
@@ -432,8 +438,7 @@ internal class WebRTCClient(
     }
 
     suspend fun negotiateConnection(
-        url: String,
-        restartPc: Boolean
+        connectParams: SmallWebRTCTransportConnectParams
     ) {
         val job = coroutineScope {
             launch {
@@ -450,16 +455,18 @@ internal class WebRTCClient(
                         }
                     }.use { client ->
                         try {
-                            val response = client.post(url) {
+                            val response = client.post(connectParams.webrtcRequestParams.endpoint) {
                                 contentType(ContentType.Application.Json)
                                 setBody(
                                     OfferRequestBody(
                                         sdp = offer.description,
                                         type = offer.type.canonicalForm(),
                                         pcId = pcId.get(),
-                                        restartPc = restartPc
+                                        restartPc = false,
+                                        requestData = connectParams.webrtcRequestParams.requestData
                                     )
                                 )
+                                connectParams.webrtcRequestParams.headers.forEach(this::header)
                             }
 
                             response.bodyAsText()
