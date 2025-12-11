@@ -21,9 +21,24 @@ import android.annotation.SuppressLint
 import android.content.Context
 import android.media.AudioManager
 import android.util.Log
+import io.ktor.client.HttpClient
+import io.ktor.client.engine.android.Android
+import io.ktor.client.plugins.ResponseException
+import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
+import io.ktor.client.request.header
+import io.ktor.client.request.patch
+import io.ktor.client.request.setBody
+import io.ktor.client.statement.bodyAsText
+import io.ktor.http.ContentType
+import io.ktor.http.contentType
+import io.ktor.serialization.kotlinx.json.json
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.MainScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.decodeFromJsonElement
+import org.webrtc.IceCandidate
+import java.util.concurrent.atomic.AtomicBoolean
 
 
 private val BOT_PARTICIPANT = Participant(
@@ -40,6 +55,7 @@ private val LOCAL_PARTICIPANT = Participant(
 
 class SmallWebRTCTransport(
     context: Context,
+    private val iceConfig: IceConfig? = null,
 ) : Transport<SmallWebRTCTransportConnectParams>() {
 
     companion object {
@@ -72,6 +88,13 @@ class SmallWebRTCTransport(
 
     private var client: WebRTCClient? = null
     private var selectedCam = CameraMode.Front
+    private var connectParams: SmallWebRTCTransportConnectParams? = null
+
+    // Trickle ICE batching (send queued candidates every ~200ms via PATCH)
+    private val canSendIceCandidates = AtomicBoolean(false)
+    private val candidateQueue: MutableList<IceCandidate> = mutableListOf()
+    private var flushJob: Job? = null
+    private val flushDelayMs: Long = 200
 
     override fun initialize(ctx: TransportContext) {
         transportContext = ctx
@@ -79,6 +102,29 @@ class SmallWebRTCTransport(
     }
 
     override fun initDevices(): Future<Unit, RTVIError> = resolvedPromiseOk(thread, Unit)
+
+    private fun sendSignallingMessage(message: TrackStatusMessage) {
+        val currentClient = client ?: return
+        currentClient.sendDataMessage(
+            OutboundSignallingEvent.serializer(),
+            OutboundSignallingEvent.create(message = message)
+        )
+    }
+
+    private fun syncTrackStatus() {
+        sendSignallingMessage(
+            TrackStatusMessage.create(
+                receiverIndex = SmallWebRTCTransceiverIndex.AUDIO,
+                enabled = isMicEnabled()
+            )
+        )
+        sendSignallingMessage(
+            TrackStatusMessage.create(
+                receiverIndex = SmallWebRTCTransceiverIndex.VIDEO,
+                enabled = isCamEnabled()
+            )
+        )
+    }
 
     @SuppressLint("MissingPermission")
     override fun connect(
@@ -96,6 +142,17 @@ class SmallWebRTCTransport(
             }
 
             setState(TransportState.Connecting)
+            connectParams = transportParams
+            canSendIceCandidates.set(false)
+            candidateQueue.clear()
+            flushJob?.cancel()
+            flushJob = null
+
+            val iceConfig = transportParams.iceConfig ?: this.iceConfig ?: IceConfig(
+                iceServers = listOf(IceServer(
+                    urls = listOf("stun:stun.l.google.com:19302")
+                ))
+            )
 
             try {
                 client = WebRTCClient(
@@ -131,6 +188,9 @@ class SmallWebRTCTransport(
                             mic = mic
                         )
                     },
+                    onNewIceCandidate = {
+                        onNewIceCandidate(it)
+                    },
                     context = appContext,
                     thread = transportContext.thread,
                     initialCamMode = if (transportContext.options.enableCam) {
@@ -139,7 +199,8 @@ class SmallWebRTCTransport(
                         null
                     },
                     initialMicEnabled = transportContext.options.enableMic,
-                    rtviProtocolVersion = transportContext.protocolVersion
+                    rtviProtocolVersion = transportContext.protocolVersion,
+                    iceConfig = iceConfig
                 )
             } catch (e: Exception) {
                 return@runOnThreadReturningFuture resolvedPromiseErr(
@@ -151,6 +212,74 @@ class SmallWebRTCTransport(
             negotiate(transportParams)
         }
 
+    private fun onNewIceCandidate(iceCandidate: IceCandidate) {
+        thread.assertCurrent()
+        candidateQueue.add(iceCandidate)
+
+        if (flushJob == null) {
+            flushJob = MainScope().launch {
+                delay(flushDelayMs)
+                thread.runOnThread {
+                    flushIceCandidates()
+                }
+            }
+        }
+    }
+
+    private fun flushIceCandidates() = thread.runOnThread {
+        flushJob = null
+
+        if (!canSendIceCandidates.get()) return@runOnThread
+
+        val currentConnectParams = connectParams ?: return@runOnThread
+        val pcId = client?.getPcId() ?: return@runOnThread
+
+        if (candidateQueue.isEmpty()) return@runOnThread
+
+        val candidates = candidateQueue.toList()
+        candidateQueue.clear()
+
+        val requestBody = IceCandidatesRequestBody(
+            pcId = pcId,
+            candidates = candidates.map {
+                IceCandidateItem(
+                    candidate = it.sdp,
+                    sdpMid = it.sdpMid,
+                    sdpMLineIndex = it.sdpMLineIndex
+                )
+            }
+        )
+
+        Log.i(TAG, "Flushing ${requestBody.candidates.size} ICE candidates")
+
+        MainScope().launch {
+            try {
+                HttpClient(Android) {
+                    install(ContentNegotiation) {
+                        json(JSON_INSTANCE)
+                    }
+                }.use { httpClient ->
+                    try {
+                        val response = httpClient.patch(currentConnectParams.webrtcRequestParams.endpoint) {
+                            contentType(ContentType.Application.Json)
+                            setBody(requestBody)
+                            currentConnectParams.webrtcRequestParams.headers.forEach(this::header)
+                        }
+                        // Ensure the request completes and surface any non-2xx response bodies.
+                        response.bodyAsText()
+
+                    } catch (e: ResponseException) {
+                        val errorBody = e.response.bodyAsText()
+                        val status = e.response.status.value
+                        Log.e(TAG, "ICE candidate PATCH failed ($status): $errorBody", e)
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to send ICE candidates", e)
+            }
+        }
+    }
+
     private fun negotiate(
         connectParams: SmallWebRTCTransportConnectParams
     ) = withPromise<Unit, RTVIError>(thread) { promise ->
@@ -159,9 +288,14 @@ class SmallWebRTCTransport(
 
             try {
                 client?.negotiateConnection(connectParams)
+                canSendIceCandidates.set(true)
+                flushIceCandidates()
+
+                client?.waitForDataChannelOpen()
 
                 val cb = transportContext.callbacks
                 setState(TransportState.Connected)
+                syncTrackStatus()
                 cb.onConnected()
                 cb.onParticipantJoined(LOCAL_PARTICIPANT)
                 cb.onParticipantJoined(BOT_PARTICIPANT)
@@ -187,7 +321,8 @@ class SmallWebRTCTransport(
                 ),
                 requestData = Value.Object(),
                 headers = startBotRequest.headers
-            )
+            ),
+            iceConfig = startBotResult.iceConfig
         )
     }
 
@@ -196,6 +331,11 @@ class SmallWebRTCTransport(
 
             val clientRef = client
             client = null
+            connectParams = null
+            canSendIceCandidates.set(false)
+            candidateQueue.clear()
+            flushJob?.cancel()
+            flushJob = null
 
             MainScope().launch {
                 try {
@@ -271,12 +411,29 @@ class SmallWebRTCTransport(
 
     override fun isMicEnabled() = client?.micEnabled ?: false
 
-    override fun enableMic(enable: Boolean): Future<Unit, RTVIError> = client?.setMicEnabled(enable)
-        ?: resolvedPromiseErr(thread, RTVIError.TransportNotInitialized)
+    override fun enableMic(enable: Boolean): Future<Unit, RTVIError> {
+        val result = client?.setMicEnabled(enable)
+            ?: return resolvedPromiseErr(thread, RTVIError.TransportNotInitialized)
+        sendSignallingMessage(
+            TrackStatusMessage.create(
+                receiverIndex = SmallWebRTCTransceiverIndex.AUDIO,
+                enabled = enable
+            )
+        )
+        return result
+    }
 
-    override fun enableCam(enable: Boolean): Future<Unit, RTVIError> =
-        client?.setCamMode(if (enable) selectedCam else null)
-            ?: resolvedPromiseErr(thread, RTVIError.TransportNotInitialized)
+    override fun enableCam(enable: Boolean): Future<Unit, RTVIError> {
+        val result = client?.setCamMode(if (enable) selectedCam else null)
+            ?: return resolvedPromiseErr(thread, RTVIError.TransportNotInitialized)
+        sendSignallingMessage(
+            TrackStatusMessage.create(
+                receiverIndex = SmallWebRTCTransceiverIndex.VIDEO,
+                enabled = enable
+            )
+        )
+        return result
+    }
 
     override fun tracks() = client?.getTracks() ?: EMPTY_TRACKS
 

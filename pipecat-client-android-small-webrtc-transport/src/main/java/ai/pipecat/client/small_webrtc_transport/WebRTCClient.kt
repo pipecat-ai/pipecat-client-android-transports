@@ -25,6 +25,7 @@ import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
 import io.ktor.http.contentType
 import io.ktor.serialization.kotlinx.json.json
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.coroutineScope
@@ -34,7 +35,6 @@ import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
-import kotlinx.serialization.json.JsonObject
 import org.webrtc.AudioSource
 import org.webrtc.AudioTrack
 import org.webrtc.DataChannel
@@ -91,11 +91,13 @@ internal class WebRTCClient(
     private val onIncomingEvent: (JsonElement) -> Unit,
     private val onTracksUpdated: (Tracks) -> Unit,
     private val onInputsUpdated: (cam: Boolean, mic: Boolean) -> Unit,
+    private val onNewIceCandidate: (iceCandidate: IceCandidate) -> Unit,
     private val context: Context,
     private val thread: ThreadRef,
     initialCamMode: CameraMode?,
     initialMicEnabled: Boolean,
     rtviProtocolVersion: String,
+    iceConfig: IceConfig
 ) {
     private val peerConnectionFactory: PeerConnectionFactory
     private val peerConnection: PeerConnection
@@ -113,10 +115,13 @@ internal class WebRTCClient(
     private val pcId = AtomicReference<String?>(null)
 
     private var tracks: Tracks? = null
+    private val dataChannelOpen = CompletableDeferred<Unit>()
 
     companion object {
         private const val TAG = "WebRTCClient"
     }
+
+    fun getPcId(): String? = pcId.get()
 
     val camMode: CameraMode?
         get() = enableCam.get()
@@ -153,17 +158,31 @@ internal class WebRTCClient(
 
         Log.i(TAG, "Creating PeerConnection")
 
-        val iceServers = ArrayList<PeerConnection.IceServer>()
-        iceServers.add(
-            PeerConnection.IceServer.builder("stun:stun.l.google.com:19302").createIceServer()
-        )
+        Log.i(TAG, "ICE config: $iceConfig")
+
+        val iceServers = iceConfig.iceServers.map {
+            PeerConnection.IceServer
+                .builder(it.urls)
+                .apply {
+                    it.username?.let(::setUsername)
+                    it.credential?.let(::setPassword)
+                }
+                .createIceServer()
+        }
 
         val rtcConfig = PeerConnection.RTCConfiguration(iceServers)
         rtcConfig.sdpSemantics = PeerConnection.SdpSemantics.UNIFIED_PLAN
 
-        val observer = PeerConnectionObserver(onTrackCallback = { transceiver ->
-            transceiver?.receiver?.track()?.let(::handleRemoteTrack)
-        })
+        val observer = PeerConnectionObserver(
+            onTrackCallback = { transceiver ->
+                transceiver?.receiver?.track()?.let(::handleRemoteTrack)
+            },
+            onNewIceCandidateCallback = { candidate ->
+                thread.runOnThread {
+                    onNewIceCandidate(candidate)
+                }
+            }
+        )
 
         peerConnection =
             peerConnectionFactory.createPeerConnection(rtcConfig, observer)
@@ -206,6 +225,9 @@ internal class WebRTCClient(
                             platformVersion = Build.VERSION.RELEASE
                         )
                     )
+                    if (!dataChannelOpen.isCompleted) {
+                        dataChannelOpen.complete(Unit)
+                    }
                 }
             }
 
@@ -229,6 +251,11 @@ internal class WebRTCClient(
             }
 
         })
+    }
+
+    suspend fun waitForDataChannelOpen() {
+        if (dataChannel.state() == DataChannel.State.OPEN) return
+        dataChannelOpen.await()
     }
 
     fun getTracks() = tracks ?: EMPTY_TRACKS
@@ -365,8 +392,6 @@ internal class WebRTCClient(
                 try {
                     setCamMode(null)
                     setMicEnabled(false)
-                    audioTransceiver.dispose()
-                    videoTransceiver.dispose()
                     audioSource?.dispose()
                     videoSource?.dispose()
                     dataChannel.dispose()
@@ -508,7 +533,8 @@ internal class WebRTCClient(
     }
 
     private class PeerConnectionObserver(
-        private val onTrackCallback: (transceiver: RtpTransceiver?) -> Unit
+        private val onTrackCallback: (transceiver: RtpTransceiver?) -> Unit,
+        private val onNewIceCandidateCallback: (iceCandidate: IceCandidate) -> Unit,
     ) : PeerConnection.Observer {
         override fun onSignalingChange(signalingState: PeerConnection.SignalingState) {
             Log.i(TAG, "onSignalingChange: $signalingState")
@@ -528,6 +554,7 @@ internal class WebRTCClient(
 
         override fun onIceCandidate(iceCandidate: IceCandidate) {
             Log.i(TAG, "onIceCandidate: $iceCandidate")
+            onNewIceCandidateCallback(iceCandidate)
         }
 
         override fun onIceCandidatesRemoved(iceCandidates: Array<IceCandidate>) {
