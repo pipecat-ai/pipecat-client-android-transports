@@ -1,4 +1,6 @@
-val libraryVersion = "1.1.0"
+import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+
+val libraryVersion = "1.2.0"
 
 plugins {
     alias(libs.plugins.android.library)
@@ -29,6 +31,10 @@ android {
         }
     }
 
+    publishing {
+        singleVariant("release") {}
+    }
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11
@@ -36,10 +42,6 @@ android {
 
     lint {
         targetSdk = 35
-    }
-
-    kotlinOptions {
-        jvmTarget = "11"
     }
 
     buildFeatures {
@@ -50,6 +52,12 @@ android {
         getByName("main") {
             jniLibs.srcDirs("$rootDir/libs/webrtc/jniLibs")
         }
+    }
+}
+
+kotlin {
+    compilerOptions {
+        jvmTarget.set(JvmTarget.JVM_11)
     }
 }
 

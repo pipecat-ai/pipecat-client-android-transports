@@ -1,16 +1,16 @@
 [versions]
 agp = "8.5.2"
 daily-android-client = "0.35.0"
-kotlin = "2.0.20"
-coreKtx = "1.13.1"
-kotlinxCoroutinesTest = "1.8.1"
-kotlinxSerializationJson = "1.7.1"
-kotlinxSerializationPlugin = "2.0.20"
-dokka = "1.9.20"
+kotlin = "2.3.10"
+coreKtx = "1.17.0"
+kotlinxCoroutinesTest = "1.10.2"
+kotlinxSerializationJson = "1.10.0"
+kotlinxSerializationPlugin = "2.3.10"
+dokka = "2.1.0"
 androidxTest = "1.6.1"
 ktor = "2.3.5"
 okhttp = "4.12.0"
-pipecatClient = "1.1.0"
+pipecatClient = "1.2.0"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }

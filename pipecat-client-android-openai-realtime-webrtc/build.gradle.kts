@@ -1,3 +1,5 @@
+import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+
 plugins {
     alias(libs.plugins.android.library)
     alias(libs.plugins.jetbrains.kotlin.android)
@@ -26,17 +28,17 @@ android {
         }
     }
 
+    publishing {
+        singleVariant("release") {}
+    }
+
     compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_1_8
-        targetCompatibility = JavaVersion.VERSION_1_8
+        sourceCompatibility = JavaVersion.VERSION_11
+        targetCompatibility = JavaVersion.VERSION_11
     }
 
     lint {
         targetSdk = 35
-    }
-
-    kotlinOptions {
-        jvmTarget = "1.8"
     }
 
     sourceSets {
@@ -46,14 +48,19 @@ android {
     }
 }
 
+kotlin {
+    compilerOptions {
+        jvmTarget.set(JvmTarget.JVM_11)
+    }
+}
+
 dependencies {
     implementation(files("$rootDir/libs/webrtc/libs/libwebrtc-6998.jar"))
 
     implementation(libs.androidx.core.ktx)
     implementation(libs.kotlinx.serialization.json)
 
-    // Temporary override until transport is updated to 1.0.0
-    api("ai.pipecat:client:0.3.4")
+    api(libs.pipecat.client)
 
     androidTestImplementation(libs.androidx.runner)
     androidTestImplementation(libs.androidx.rules)
@@ -72,7 +79,7 @@ publishing {
         register<MavenPublication>("release") {
             groupId = "ai.pipecat"
             artifactId = "openai-realtime-webrtc-transport"
-            version = "0.3.7"
+            version = "1.2.0"
 
             pom {
                 name.set("OpenAI Realtime WebRTC Transport")

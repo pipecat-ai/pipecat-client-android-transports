@@ -1,40 +1,36 @@
 package ai.pipecat.client.openai_realtime_webrtc
 
-import ai.pipecat.client.helper.LLMContextMessage
-import ai.pipecat.client.helper.LLMFunctionCall
-import ai.pipecat.client.helper.LLMFunctionCallResult
 import ai.pipecat.client.result.Future
 import ai.pipecat.client.result.RTVIError
 import ai.pipecat.client.result.resolvedPromiseErr
 import ai.pipecat.client.result.resolvedPromiseOk
 import ai.pipecat.client.result.withPromise
-import ai.pipecat.client.transport.AuthBundle
 import ai.pipecat.client.transport.MsgClientToServer
 import ai.pipecat.client.transport.MsgServerToClient
 import ai.pipecat.client.transport.Transport
 import ai.pipecat.client.transport.TransportContext
-import ai.pipecat.client.transport.TransportFactory
+import ai.pipecat.client.types.APIRequest
+import ai.pipecat.client.types.BotOutputData
+import ai.pipecat.client.types.BotReadyData
+import ai.pipecat.client.types.LLMContextMessage
+import ai.pipecat.client.types.LLMFunctionCallData
+import ai.pipecat.client.types.LLMFunctionCallResult
 import ai.pipecat.client.types.MediaDeviceId
 import ai.pipecat.client.types.MediaDeviceInfo
-import ai.pipecat.client.types.Option
 import ai.pipecat.client.types.Participant
 import ai.pipecat.client.types.ParticipantId
 import ai.pipecat.client.types.ParticipantTracks
-import ai.pipecat.client.types.ServiceConfig
 import ai.pipecat.client.types.Tracks
 import ai.pipecat.client.types.Transcript
 import ai.pipecat.client.types.TransportState
 import ai.pipecat.client.types.Value
-import ai.pipecat.client.types.getOptionsFor
-import ai.pipecat.client.types.getValueFor
+import ai.pipecat.client.utils.ThreadRef
 import android.annotation.SuppressLint
 import android.content.Context
 import android.media.AudioManager
 import android.util.Log
 import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.launch
-import kotlinx.serialization.KSerializer
-import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.decodeFromJsonElement
@@ -55,56 +51,15 @@ private val LOCAL_PARTICIPANT = Participant(
     local = true
 )
 
-private inline fun <reified E> E.convertToValue(serializer: KSerializer<E>) =
-    JSON.decodeFromJsonElement<Value>(JSON.encodeToJsonElement(serializer, this))
-
-private inline fun <reified E> Value.convertFromValue(serializer: KSerializer<E>): E =
-    JSON.decodeFromJsonElement(serializer, JSON.encodeToJsonElement(Value.serializer(), this))
+private inline fun <reified E> E.convertToValue() =
+    JSON.decodeFromJsonElement<Value>(JSON.encodeToJsonElement(this))
 
 class OpenAIRealtimeWebRTCTransport(
-    private val transportContext: TransportContext,
-    androidContext: Context
-) : Transport() {
+    androidContext: Context,
+) : Transport<OpenAIServiceOptions>() {
 
     companion object {
         private const val TAG = "OpenAIRealtimeWebRTCTransport"
-
-        private const val SERVICE_LLM = "llm"
-        private const val OPTION_API_KEY = "api_key"
-        private const val OPTION_INITIAL_MESSAGES = "initial_messages"
-        private const val OPTION_INITIAL_CONFIG = "initial_config"
-        private const val OPTION_MODEL = "model"
-
-        fun buildConfig(
-            apiKey: String,
-            model: String = "gpt-4o-realtime-preview-2024-12-17",
-            initialMessages: List<LLMContextMessage>? = null,
-            initialConfig: OpenAIRealtimeSessionConfig? = null
-        ): List<ServiceConfig> {
-
-            val options = mutableListOf(
-                Option(OPTION_API_KEY, apiKey),
-                Option(OPTION_MODEL, model)
-            )
-
-            if (initialConfig != null) {
-                options.add(
-                    Option(
-                        OPTION_INITIAL_CONFIG, initialConfig.convertToValue(
-                            OpenAIRealtimeSessionConfig.serializer()
-                        )
-                    )
-                )
-            }
-
-            if (initialMessages != null) {
-                options.add(Option(OPTION_INITIAL_MESSAGES, Value.Array(initialMessages.map {
-                    it.convertToValue(LLMContextMessage.serializer())
-                })))
-            }
-
-            return listOf(ServiceConfig(SERVICE_LLM, options))
-        }
     }
 
     object AudioDevices {
@@ -119,16 +74,14 @@ class OpenAIRealtimeWebRTCTransport(
         )
     }
 
-    class Factory(private val androidContext: Context) : TransportFactory {
-        override fun createTransport(context: TransportContext): Transport {
-            return OpenAIRealtimeWebRTCTransport(context, androidContext)
-        }
-    }
-
     private var state = TransportState.Disconnected
 
     private val appContext = androidContext.applicationContext
-    private val thread = transportContext.thread
+
+    private lateinit var transportContext: TransportContext
+    private lateinit var thread: ThreadRef
+
+    private var options: OpenAIServiceOptions? = null
 
     private var client: WebRTCClient? = null
 
@@ -140,11 +93,12 @@ class OpenAIRealtimeWebRTCTransport(
 
         thread.runOnThread {
 
-            transportContext.callbacks.onGenericMessage(MsgServerToClient(
-                label = "rtvi-ai",
-                type = "openai-generic-msg",
-                data = msgJson
-            ))
+            transportContext.callbacks.onServerMessage(
+                JSON_INSTANCE.decodeFromJsonElement(
+                    Value.serializer(),
+                    msgJson
+                )
+            );
 
             when (msg.type) {
                 "error" -> {
@@ -167,11 +121,14 @@ class OpenAIRealtimeWebRTCTransport(
 
                 "response.audio_transcript.delta" -> {
                     if (msg.delta != null) {
-                        transportContext.callbacks.onBotTTSText(
-                            MsgServerToClient.Data.BotTTSTextData(
-                                msg.delta
-                            )
-                        )
+                        transportContext.callbacks.apply {
+                            onBotTTSText(MsgServerToClient.Data.BotTTSTextData(msg.delta))
+                            onBotOutput(BotOutputData(
+                                text = msg.delta,
+                                spoken = true,
+                                aggregatedBy = "word"
+                            ))
+                        }
                     }
                 }
 
@@ -201,10 +158,10 @@ class OpenAIRealtimeWebRTCTransport(
                         return@runOnThread
                     }
 
-                    val data = LLMFunctionCall(
+                    val data = LLMFunctionCallData(
                         functionName = msg.name,
-                        toolCallId = msg.callId,
-                        args = msg.arguments
+                        toolCallID = msg.callId,
+                        args = JSON_INSTANCE.encodeToJsonElement(msg.arguments)
                     )
 
                     transportContext.onMessage(
@@ -224,13 +181,23 @@ class OpenAIRealtimeWebRTCTransport(
         }
     }
 
-    override fun initDevices(): Future<Unit, RTVIError> = resolvedPromiseOk(thread, Unit)
+    override fun initialize(ctx: TransportContext) {
+        transportContext = ctx
+        thread = ctx.thread
+    }
+
+    override fun deserializeConnectParams(
+        json: String,
+        startBotRequest: APIRequest
+    ) = JSON_INSTANCE.decodeFromString<OpenAIServiceOptions>(json)
+
+    override fun initDevices() = resolvedPromiseOk<Unit, RTVIError>(thread, Unit)
 
     @SuppressLint("MissingPermission")
-    override fun connect(authBundle: AuthBundle?): Future<Unit, RTVIError> =
+    override fun connect(transportParams: OpenAIServiceOptions): Future<Unit, RTVIError> =
         thread.runOnThreadReturningFuture {
 
-            Log.i(TAG, "connect(${authBundle})")
+            Log.i(TAG, "connect(${transportParams})")
 
             if (client != null) {
                 return@runOnThreadReturningFuture resolvedPromiseErr(
@@ -238,6 +205,8 @@ class OpenAIRealtimeWebRTCTransport(
                     RTVIError.OtherError("Connection already active")
                 )
             }
+
+            options = transportParams
 
             transportContext.callbacks.onInputsUpdated(
                 camera = false,
@@ -257,25 +226,8 @@ class OpenAIRealtimeWebRTCTransport(
 
             enableMic(transportContext.options.enableMic)
 
-            val options = transportContext.options.params.config.getOptionsFor(SERVICE_LLM)
-
-            val apiKey = (options?.getValueFor(OPTION_API_KEY) as? Value.Str)?.value
-            val model = (options?.getValueFor(OPTION_MODEL) as? Value.Str)?.value
-
-
-            if (apiKey == null) {
-                return@runOnThreadReturningFuture resolvedPromiseErr(
-                    thread,
-                    RTVIError.OtherError("Ensure $OPTION_API_KEY is set in llm service options")
-                )
-            }
-
-            if (model == null) {
-                return@runOnThreadReturningFuture resolvedPromiseErr(
-                    thread,
-                    RTVIError.OtherError("Ensure $OPTION_MODEL is set in llm service options")
-                )
-            }
+            val apiKey = transportParams.apiKey
+            val model = transportParams.model ?: "gpt-realtime"
 
             withPromise(thread) { promise ->
 
@@ -294,7 +246,7 @@ class OpenAIRealtimeWebRTCTransport(
                         cb.onParticipantJoined(LOCAL_PARTICIPANT)
                         cb.onParticipantJoined(BOT_PARTICIPANT)
                         setState(TransportState.Ready)
-                        cb.onBotReady("local", emptyList())
+                        cb.onBotReady(BotReadyData(version = model))
                         promise.resolveOk(Unit)
 
                     } catch (e: Exception) {
@@ -305,22 +257,17 @@ class OpenAIRealtimeWebRTCTransport(
         }
 
     private fun onSessionCreated() {
-        val options = transportContext.options.params.config.getOptionsFor(SERVICE_LLM)
 
-        val initialMessages =
-            (options?.getValueFor(OPTION_INITIAL_MESSAGES) as? Value.Array)?.value
+        options?.let { options ->
+            sendConfigUpdate(options.sessionConfig.convertToValue())
 
-        val initialConfig = options?.getValueFor(OPTION_INITIAL_CONFIG)
+            if (options.initialMessages.isNotEmpty()) {
+                for (message in options.initialMessages) {
+                    sendConversationMessage(role = message.role.value, text = message.content)
+                }
 
-        if (initialConfig != null) {
-            sendConfigUpdate(initialConfig)
-        }
-
-        if (initialMessages != null) {
-            for (message in initialMessages.map { it.convertFromValue(LLMContextMessage.serializer()) }) {
-                sendConversationMessage(role = message.role, text = message.content)
+                requestResponseFromBot()
             }
-            requestResponseFromBot()
         }
     }
 
@@ -382,56 +329,24 @@ class OpenAIRealtimeWebRTCTransport(
         }
 
         when (message.type) {
-            "action" -> {
-                try {
-                    val data =
-                        JSON.decodeFromJsonElement<MsgClientToServer.Data.Action>(message.data!!)
+            MsgClientToServer.Type.SendText -> {
 
-                    when (data.action) {
+                val data =
+                    JSON.decodeFromJsonElement<MsgClientToServer.Data.SendText>(message.data!!)
 
-                        "append_to_messages" -> {
-                            val messages: List<Value.Object> =
-                                (data.arguments.getValueFor("messages") as Value.Array).value.map { it as Value.Object }
+                sendConversationMessage(
+                    role = LLMContextMessage.Role.User.value,
+                    text = data.content
+                )
 
-                            for (appendedMessage in messages) {
-
-                                val role = appendedMessage.value["role"] as Value.Str
-                                val content = appendedMessage.value["content"] as Value.Str
-
-                                Log.i(TAG, "Sending message as ${role.value}: '${content.value}'")
-
-                                sendConversationMessage(role = role.value, text = content.value)
-                            }
-
-                            requestResponseFromBot()
-
-                            transportContext.onMessage(
-                                MsgServerToClient(
-                                    id = message.id,
-                                    label = message.label,
-                                    type = MsgServerToClient.Type.ActionResponse,
-                                    data = JSON.encodeToJsonElement(
-                                        MsgServerToClient.Data.ActionResponse(
-                                            Value.Null
-                                        )
-                                    )
-                                )
-                            )
-
-                            resolvedPromiseOk(thread, Unit)
-                        }
-
-                        else -> {
-                            operationNotSupported()
-                        }
-                    }
-
-                } catch (e: Exception) {
-                    resolvedPromiseErr(thread, RTVIError.ExceptionThrown(e))
+                if (data.options.runImmediately != false) {
+                    requestResponseFromBot()
                 }
+
+                resolvedPromiseOk(thread, Unit)
             }
 
-            "llm-function-call-result" -> {
+            MsgClientToServer.Type.LlmFunctionCallResult -> {
 
                 val messageData =
                     message.data ?: return@runOnThreadReturningFuture resolvedPromiseErr(
@@ -447,7 +362,7 @@ class OpenAIRealtimeWebRTCTransport(
                         "type" to Value.Str("conversation.item.create"),
                         "item" to Value.Object(
                             "type" to Value.Str("function_call_output"),
-                            "call_id" to Value.Str(data.toolCallId),
+                            "call_id" to Value.Str(data.toolCallID),
                             "output" to Value.Str(JSON.encodeToString(data.result))
                         )
                     )
@@ -525,8 +440,6 @@ class OpenAIRealtimeWebRTCTransport(
         }
         return resolvedPromiseOk(thread, Unit)
     }
-
-    override fun expiry() = null
 
     override fun enableCam(enable: Boolean) = operationNotSupported<Unit>()
 

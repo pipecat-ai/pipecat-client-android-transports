@@ -1,0 +1,5 @@
+package ai.pipecat.client.openai_realtime_webrtc
+
+import ai.pipecat.client.PipecatClient
+
+typealias PipecatClientOpenAIRealtimeWebRTC = PipecatClient<OpenAIRealtimeWebRTCTransport, OpenAIServiceOptions>
