@@ -18,7 +18,7 @@ import kotlin.concurrent.thread
 import kotlin.math.sqrt
 
 private const val API_URL =
-    "https://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContent"
+    "https://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent"
 
 private const val TAG = "GeminiClient"
 
