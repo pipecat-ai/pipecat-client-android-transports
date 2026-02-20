@@ -73,7 +73,7 @@ publishing {
         register<MavenPublication>("release") {
             groupId = "ai.pipecat"
             artifactId = "gemini-live-websocket-transport"
-            version = "0.3.7"
+            version = "1.2.0"
 
             pom {
                 name.set("Pipecat Client Gemini Live Websocket Transport")

@@ -63,9 +63,9 @@ class GeminiLiveWebsocketTransport(
 
         fun buildConfig(
             apiKey: String,
-            model: String = "models/gemini-2.0-flash-exp",
+            model: String = "models/gemini-2.5-flash-native-audio-preview-12-2025",
             initialUserMessage: String? = null,
-            generationConfig: Value.Object = Value.Object(),
+            voice: String = "Puck",
             systemInstruction: Value? = null,
             tools: Value.Array = Value.Array()
         ): List<ServiceConfig> = listOf(
@@ -78,7 +78,16 @@ class GeminiLiveWebsocketTransport(
                     Option(
                         OPTION_MODEL_CONFIG, Value.Object(
                             "model" to Value.Str(model),
-                            "generation_config" to generationConfig,
+                            "generation_config" to Value.Object(
+                                "responseModalities" to Value.Str("audio"),
+                                "speech_config" to Value.Object(
+                                    "voice_config" to Value.Object(
+                                        "prebuiltVoiceConfig" to Value.Object(
+                                            "voice_name" to Value.Str(voice),
+                                        )
+                                    )
+                                )
+                            ),
                             "system_instruction" to (systemInstruction ?: Value.Null),
                             "tools" to tools,
                         )
