@@ -27,6 +27,7 @@ import org.webrtc.SessionDescription
 import org.webrtc.audio.JavaAudioDeviceModule
 import java.net.URL
 import java.nio.ByteBuffer
+import java.util.UUID
 import java.util.concurrent.atomic.AtomicReference
 import javax.net.ssl.HttpsURLConnection
 import kotlin.coroutines.resume
@@ -227,7 +228,7 @@ internal class WebRTCClient(private val onIncomingEvent: (String) -> Unit, conte
     suspend fun negotiateConnection(
         baseUrl: String,
         apiKey: String,
-        model: String
+        sessionConfigJson: String
     ) {
         if (apiKey.isEmpty()) {
             throw Exception("No API key provided")
@@ -246,16 +247,32 @@ internal class WebRTCClient(private val onIncomingEvent: (String) -> Unit, conte
 
                         ensureActive()
 
-                        val url = URL("$baseUrl?model=$model")
+                        // The GA Realtime API takes the SDP offer and the session
+                        // config together as multipart form data
+                        val boundary = "pipecat-${UUID.randomUUID()}"
+
+                        val url = URL(baseUrl)
                         val connection = url.openConnection() as HttpsURLConnection
                         connection.requestMethod = "POST"
                         connection.setRequestProperty("Authorization", "Bearer $apiKey")
-                        connection.setRequestProperty("Content-Type", "application/sdp")
+                        connection.setRequestProperty(
+                            "Content-Type",
+                            "multipart/form-data; boundary=$boundary"
+                        )
                         connection.doOutput = true
 
-                        // Write SDP offer to request body
+                        val body = buildString {
+                            append("--$boundary\r\n")
+                            append("Content-Disposition: form-data; name=\"sdp\"\r\n\r\n")
+                            append(offer.description)
+                            append("\r\n--$boundary\r\n")
+                            append("Content-Disposition: form-data; name=\"session\"\r\n\r\n")
+                            append(sessionConfigJson)
+                            append("\r\n--$boundary--\r\n")
+                        }
+
                         connection.outputStream.use { os ->
-                            os.write(offer.description.toByteArray())
+                            os.write(body.toByteArray())
                         }
 
                         // Read response
