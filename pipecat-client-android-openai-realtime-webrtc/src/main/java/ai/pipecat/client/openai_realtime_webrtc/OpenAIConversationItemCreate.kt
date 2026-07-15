@@ -25,7 +25,9 @@ internal data class OpenAIConversationItemCreate private constructor(
                 type = "message",
                 role = role,
                 content = listOf(Content(type = when (role) {
-                    "assistant" -> "text"
+                    // The GA Realtime API renamed assistant message content
+                    // from "text" to "output_text"
+                    "assistant" -> "output_text"
                     else -> "input_text"
                 }, text = text))
             )

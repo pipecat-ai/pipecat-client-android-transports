@@ -51,9 +51,6 @@ private val LOCAL_PARTICIPANT = Participant(
     local = true
 )
 
-private inline fun <reified E> E.convertToValue() =
-    JSON.decodeFromJsonElement<Value>(JSON.encodeToJsonElement(this))
-
 class OpenAIRealtimeWebRTCTransport(
     androidContext: Context,
 ) : Transport<OpenAIServiceOptions>() {
@@ -119,7 +116,8 @@ class OpenAIRealtimeWebRTCTransport(
                     transportContext.callbacks.onUserStoppedSpeaking()
                 }
 
-                "response.audio_transcript.delta" -> {
+                // First name is GA, second is the legacy beta API name
+                "response.output_audio_transcript.delta", "response.audio_transcript.delta" -> {
                     if (msg.delta != null) {
                         transportContext.callbacks.apply {
                             onBotTTSText(MsgServerToClient.Data.BotTTSTextData(msg.delta))
@@ -234,15 +232,20 @@ class OpenAIRealtimeWebRTCTransport(
             val apiKey = transportParams.apiKey
             val model = transportParams.model ?: "gpt-realtime"
 
+            val sessionConfigJson = JSON.encodeToString(
+                Value.serializer(),
+                transportParams.sessionConfig.toGaSessionConfig(model)
+            )
+
             withPromise(thread) { promise ->
 
                 MainScope().launch {
 
                     try {
                         client?.negotiateConnection(
-                            baseUrl = "https://api.openai.com/v1/realtime",
+                            baseUrl = "https://api.openai.com/v1/realtime/calls",
                             apiKey = apiKey,
-                            model = model
+                            sessionConfigJson = sessionConfigJson
                         )
 
                         val cb = transportContext.callbacks
@@ -263,9 +266,9 @@ class OpenAIRealtimeWebRTCTransport(
 
     private fun onSessionCreated() {
 
+        // Note: the session config itself is applied when the call is
+        // established, as part of the SDP offer request.
         options?.let { options ->
-            sendConfigUpdate(options.sessionConfig.convertToValue())
-
             if (options.initialMessages.isNotEmpty()) {
                 for (message in options.initialMessages) {
                     sendConversationMessage(role = message.role.value, text = message.content)
@@ -277,9 +280,18 @@ class OpenAIRealtimeWebRTCTransport(
     }
 
     fun sendConfigUpdate(config: Value) {
+
+        // The GA Realtime API requires the session type to be set in
+        // session.update events
+        val configWithType = if (config is Value.Object && !config.value.containsKey("type")) {
+            Value.Object(config.value + ("type" to Value.Str("realtime")))
+        } else {
+            config
+        }
+
         client?.sendDataMessage(
             OpenAISessionUpdate.serializer(),
-            OpenAISessionUpdate.of(config)
+            OpenAISessionUpdate.of(configWithType)
         )
     }
 
