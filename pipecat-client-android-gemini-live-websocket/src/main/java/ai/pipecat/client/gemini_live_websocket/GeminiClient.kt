@@ -56,7 +56,9 @@ private data class RealtimeInputRequest(
 ) {
     @Serializable
     data class RealtimeInput(
-        val mediaChunks: List<InlineData>
+        // Note: newer Live API models require this rather than the deprecated
+        // mediaChunks field
+        val audio: InlineData
     )
 }
 
@@ -92,10 +94,27 @@ private data class IncomingMessage(
     val setupComplete: SetupComplete? = null,
     val serverContent: ServerContent? = null,
     val toolCall: ToolCall? = null,
+    val toolCallCancellation: JsonElement? = null,
+    val sessionResumptionUpdate: SessionResumptionUpdate? = null,
+    val goAway: GoAway? = null,
+    val usageMetadata: JsonElement? = null,
+    val voiceActivityDetectionSignal: JsonElement? = null,
+    val voiceActivity: JsonElement? = null,
 ) {
     @Serializable
     data class SetupComplete(
         val dummyField: Boolean = false
+    )
+
+    @Serializable
+    data class SessionResumptionUpdate(
+        val newHandle: String? = null,
+        val resumable: Boolean = false
+    )
+
+    @Serializable
+    data class GoAway(
+        val timeLeft: String? = null
     )
 
     @Serializable
@@ -341,11 +360,9 @@ internal class GeminiClient private constructor(
                                     RealtimeInputRequest.serializer(),
                                     RealtimeInputRequest(
                                         RealtimeInput(
-                                            listOf(
-                                                InlineData.ofPcm(
-                                                    inputSampleRate,
-                                                    event.buf
-                                                )
+                                            audio = InlineData.ofPcm(
+                                                inputSampleRate,
+                                                event.buf
                                             )
                                         )
                                     )
@@ -464,6 +481,29 @@ internal class GeminiClient private constructor(
                                         args = Value.Array(call.arguments.values.toList().map { Value.Str(it) })
                                     )
                                 }
+                            } else if (data.sessionResumptionUpdate != null) {
+                                // Session resumption is not currently supported by
+                                // this client, so no need to track the handle
+                                Log.d(
+                                    TAG,
+                                    "Session resumption update (resumable: ${data.sessionResumptionUpdate.resumable})"
+                                )
+                            } else if (data.goAway != null) {
+                                Log.w(
+                                    TAG,
+                                    "Server will terminate the connection soon (timeLeft: ${data.goAway.timeLeft})"
+                                )
+                            } else if (data.toolCallCancellation != null) {
+                                Log.w(
+                                    TAG,
+                                    "Tool call cancellation received (not supported): ${data.toolCallCancellation}"
+                                )
+                            } else if (
+                                data.usageMetadata != null ||
+                                data.voiceActivityDetectionSignal != null ||
+                                data.voiceActivity != null
+                            ) {
+                                // Ignore
                             } else {
                                 Log.e(
                                     TAG,
