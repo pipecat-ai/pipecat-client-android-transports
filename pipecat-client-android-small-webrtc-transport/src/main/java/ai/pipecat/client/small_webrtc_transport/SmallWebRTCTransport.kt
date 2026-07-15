@@ -141,6 +141,11 @@ class SmallWebRTCTransport(
                 )
             }
 
+            checkAccessNetworkStatePermission(appContext)?.let { error ->
+                Log.e(TAG, error.description)
+                return@runOnThreadReturningFuture resolvedPromiseErr(thread, error)
+            }
+
             setState(TransportState.Connecting)
             connectParams = transportParams
             canSendIceCandidates.set(false)
