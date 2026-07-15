@@ -206,6 +206,11 @@ class OpenAIRealtimeWebRTCTransport(
                 )
             }
 
+            checkAccessNetworkStatePermission(appContext)?.let { error ->
+                Log.e(TAG, error.description)
+                return@runOnThreadReturningFuture resolvedPromiseErr(thread, error)
+            }
+
             options = transportParams
 
             transportContext.callbacks.onInputsUpdated(

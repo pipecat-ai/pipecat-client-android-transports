@@ -296,6 +296,11 @@ class DailyTransport(
 
             Log.i(TAG, "connect($transportParams)")
 
+            checkAccessNetworkStatePermission(appContext)?.let { error ->
+                Log.e(TAG, error.description)
+                return@runOnThreadReturningFuture resolvedPromiseErr(thread, error)
+            }
+
             setState(TransportState.Connecting)
 
             return@runOnThreadReturningFuture initDevices()
