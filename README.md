@@ -173,3 +173,18 @@ Note: the `requestData` values shown above are for bots hosted on
 [Pipecat Cloud](https://docs.pipecat.ai/pipecat-cloud/introduction), which uses the
 `/start` request body to determine how the bot session is launched. Self-hosted
 runners may ignore these fields or accept different ones.
+
+
+## Licensing
+
+This project is licensed under the [BSD 2-Clause License](LICENSE).
+
+The OpenAI Realtime WebRTC and Small WebRTC transports include a prebuilt copy of
+[libwebrtc](https://webrtc.googlesource.com/src/), which is distributed under the BSD
+3-Clause License and bundles a number of third-party libraries under their own
+permissive licenses. See [libs/webrtc/LICENSE.md](libs/webrtc/LICENSE.md) for the full
+license texts, and [libs/webrtc/PATENTS](libs/webrtc/PATENTS) for the WebRTC patent grant.
+
+If your app uses either of these transports, these notices apply to your app too, and
+should be included with its other open source license notices. They are also packaged
+in the AAR under `META-INF/<artifactId>/libwebrtc/`.

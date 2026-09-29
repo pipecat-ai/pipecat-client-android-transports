@@ -11,6 +11,19 @@ plugins {
     signing
 }
 
+// Package the libwebrtc license notices into the AAR (under a module-specific path, so
+// apps depending on multiple transports don't hit duplicate resource conflicts)
+val webrtcNoticesDir = layout.buildDirectory.dir("generated/webrtcNotices")
+val webrtcNotices = tasks.register<Sync>("webrtcNotices") {
+    from("$rootDir/libs/webrtc") {
+        include("LICENSE.md", "PATENTS")
+        into("META-INF/small-webrtc-transport/libwebrtc")
+    }
+    into(webrtcNoticesDir)
+}
+
+tasks.named("preBuild") { dependsOn(webrtcNotices) }
+
 android {
     namespace = "ai.pipecat.client.small_webrtc_transport"
     compileSdk = 35
@@ -51,6 +64,7 @@ android {
     sourceSets {
         getByName("main") {
             jniLibs.srcDirs("$rootDir/libs/webrtc/jniLibs")
+            resources.srcDir(webrtcNoticesDir.get().asFile)
         }
     }
 }
@@ -108,6 +122,10 @@ publishing {
                     license {
                         name.set("BSD 2-Clause License")
                         url.set("https://github.com/pipecat-ai/pipecat-client-android-transports/blob/main/LICENSE")
+                    }
+                    license {
+                        name.set("libwebrtc and bundled third-party licenses")
+                        url.set("https://github.com/pipecat-ai/pipecat-client-android-transports/blob/main/libs/webrtc/LICENSE.md")
                     }
                 }
 
