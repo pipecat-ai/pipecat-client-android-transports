@@ -2,6 +2,10 @@
 
 ## daily-transport
 
+### 1.2.2 (2026-10-08)
+
+No changes.
+
 ### 1.2.1 (2026-08-03)
 
 - Updated Daily client to 0.39.1
@@ -19,6 +23,10 @@
   DSL, and explicit `singleVariant("release")` publishing config
 
 ## small-webrtc-transport
+
+### 1.2.2 (2026-10-08)
+
+- Added libwebrtc license details.
 
 ### 1.2.1 (2026-08-03)
 
@@ -40,6 +48,10 @@ No changes.
   as daily-transport
 
 ## gemini-live-websocket-transport
+
+### 1.2.2 (2026-10-08)
+
+No changes.
 
 ### 1.2.1 (2026-08-03)
 
@@ -72,6 +84,10 @@ No changes.
   publishing updates
 
 ## openai-realtime-webrtc-transport
+
+### 1.2.2 (2026-10-08)
+
+- Added libwebrtc license details.
 
 ### 1.2.1 (2026-08-03)
 
